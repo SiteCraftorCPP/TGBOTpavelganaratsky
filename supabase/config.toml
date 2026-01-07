@@ -1,0 +1,10 @@
+project_id = "jmzcdecklfrknitzlwyg"
+
+[functions.telegram-bot]
+verify_jwt = false
+
+[functions.send-reminders]
+verify_jwt = false
+
+[functions.cancel-booking-admin]
+verify_jwt = false

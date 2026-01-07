@@ -1,0 +1,16 @@
+# Конфигурация для Amvera
+# Поместите этот файл в корень проекта бота
+
+meta:
+  environment: nodejs
+  toolchain:
+    name: npm
+    version: "20"
+
+build:
+  dockerfile: ""
+
+run:
+  persistentVolumeClaimName: ""
+  command: npm start
+  containerPort: 3000
