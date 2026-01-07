@@ -82,8 +82,20 @@ fi
 echo ""
 echo -e "${YELLOW}📦 Шаг 6: Настройка .env файла...${NC}"
 if [ ! -f "$DEPLOY_DIR/.env" ]; then
-    cp env.example .env
-    echo -e "${RED}⚠️  ВАЖНО: Отредактируйте .env файл с вашими данными!${NC}"
+    if [ -f "$DEPLOY_DIR/env.example" ]; then
+        cp env.example .env
+    elif [ -f "$DEPLOY_DIR/.env.example" ]; then
+        cp .env.example .env
+    else
+        # Создаем .env файл, если пример отсутствует
+        cat > .env << EOF
+# Supabase Configuration for Frontend
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+EOF
+        echo -e "${YELLOW}Создан новый .env файл${NC}"
+    fi
+    echo -e "${RED}⚠️  ВАЖНО: Отредактируйте .env файл с вашими данными Supabase!${NC}"
     echo "Нажмите Enter, когда отредактируете .env (или Ctrl+C для выхода)"
     read -r
 fi
