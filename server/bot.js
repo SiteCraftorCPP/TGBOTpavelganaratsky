@@ -457,9 +457,14 @@ async function getFileUrl(fileId) {
 
 // Save payment screenshot
 async function savePaymentScreenshot(clientId, fileUrl) {
+  console.log('=== savePaymentScreenshot CALLED ===');
+  console.log('clientId:', clientId);
+  console.log('fileUrl:', fileUrl);
   try {
+    console.log('Starting bucket check...');
     // First, check if bucket exists and get its details
     const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    console.log('Bucket check completed, listError:', listError);
     
     if (listError) {
       console.error('Error listing buckets:', listError);
@@ -1117,15 +1122,20 @@ app.post('/webhook', async (req, res) => {
       
       // Handle photos separately from text messages
       if (update.message.photo) {
+        console.log('📸 Photo received in webhook');
         const chatId = update.message.chat.id;
         const telegramId = update.message.from.id;
         const state = await getState(chatId);
+        console.log('Current state:', state);
         
         // Handle payment screenshot
         if (state?.state === 'waiting_payment') {
+          console.log('✅ State is waiting_payment, processing photo...');
           // Get the largest photo
           const photo = update.message.photo[update.message.photo.length - 1];
+          console.log('Photo object:', photo);
           const fileUrl = await getFileUrl(photo.file_id);
+          console.log('Got fileUrl from Telegram:', fileUrl);
           
           if (fileUrl) {
             const success = await savePaymentScreenshot(client.id, fileUrl);
