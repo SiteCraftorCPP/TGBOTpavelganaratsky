@@ -74,16 +74,16 @@ const SosRequests = () => {
   const viewedRequests = requests.filter((r) => r.status === "viewed");
 
   return (
-    <div className="space-y-6 w-full max-w-7xl mx-auto">
+    <div className="space-y-6">
       {/* New Requests */}
-      <Card className={newRequests.length > 0 ? "border-destructive" : ""}>
-        <CardHeader>
+      <Card className={newRequests.length > 0 ? "border-destructive rounded-none sm:rounded-lg" : "rounded-none sm:rounded-lg"}>
+        <CardHeader className="px-4 sm:px-6">
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className={`h-5 w-5 ${newRequests.length > 0 ? "text-destructive" : ""}`} />
             Новые SOS ({newRequests.length})
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 sm:px-6">
           {isLoading ? (
             <p className="text-muted-foreground">Загрузка...</p>
           ) : newRequests.length === 0 ? (
@@ -95,9 +95,9 @@ const SosRequests = () => {
                   key={request.id}
                   className="p-4 rounded-lg border border-destructive/50 bg-destructive/5"
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                  <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="font-medium text-foreground">
                           {getClientName(request.clients)}
                         </span>
@@ -107,12 +107,12 @@ const SosRequests = () => {
                         {format(new Date(request.created_at), "d MMM yyyy, HH:mm", { locale: ru })}
                       </p>
                       {request.text && (
-                        <p className="text-foreground whitespace-pre-wrap">{request.text}</p>
+                        <p className="text-foreground whitespace-pre-wrap break-words">{request.text}</p>
                       )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[120px]">
                       {request.clients?.telegram_id && (
-                        <Button size="sm" variant="outline" asChild>
+                        <Button size="sm" variant="outline" className="w-full" asChild>
                           <a
                             href={`https://t.me/${request.clients.username || request.clients.telegram_id}`}
                             target="_blank"
@@ -125,6 +125,7 @@ const SosRequests = () => {
                       )}
                       <Button
                         size="sm"
+                        className="w-full"
                         onClick={() => markAsViewedMutation.mutate(request.id)}
                         disabled={markAsViewedMutation.isPending}
                       >
@@ -141,14 +142,14 @@ const SosRequests = () => {
       </Card>
 
       {/* Viewed Requests */}
-      <Card>
-        <CardHeader>
+      <Card className="rounded-none sm:rounded-lg">
+        <CardHeader className="px-4 sm:px-6">
           <CardTitle className="flex items-center gap-2">
             <Eye className="h-5 w-5" />
             История ({viewedRequests.length})
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 sm:px-6">
           {viewedRequests.length === 0 ? (
             <p className="text-muted-foreground">Нет истории</p>
           ) : (
@@ -159,8 +160,8 @@ const SosRequests = () => {
                     key={request.id}
                     className="p-3 rounded-lg border border-border bg-card"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-foreground">
                           {getClientName(request.clients)}
                         </span>
@@ -181,7 +182,7 @@ const SosRequests = () => {
                       </span>
                     </div>
                     {request.text && (
-                      <p className="text-sm text-muted-foreground">{request.text}</p>
+                      <p className="text-sm text-muted-foreground break-words">{request.text}</p>
                     )}
                   </div>
                 ))}

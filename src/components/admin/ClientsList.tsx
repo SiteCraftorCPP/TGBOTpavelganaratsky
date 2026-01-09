@@ -189,14 +189,14 @@ const ClientsList = () => {
   });
 
   return (
-    <Card className="w-full max-w-7xl mx-auto">
-      <CardHeader>
+    <Card className="rounded-none sm:rounded-lg">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
           Клиенты ({clients.length})
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 sm:px-6">
         {isLoading ? (
           <p className="text-muted-foreground">Загрузка...</p>
         ) : clients.length === 0 ? (
@@ -206,17 +206,17 @@ const ClientsList = () => {
             {clients.map((client) => (
               <div
                 key={client.id}
-                className="flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
+                className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
               >
-                <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                     <span className="text-lg font-medium text-primary">
                       {(client.first_name?.[0] || client.username?.[0] || "?").toUpperCase()}
                     </span>
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     {editingId === client.id ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Input
                           placeholder="Имя"
                           value={editFirstName}
@@ -248,12 +248,12 @@ const ClientsList = () => {
                         </Button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-foreground">{getClientName(client)}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-foreground break-words">{getClientName(client)}</p>
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-6 w-6"
+                          className="h-6 w-6 shrink-0"
                           onClick={() => startEdit(client)}
                         >
                           <Pencil className="h-3 w-3" />
@@ -265,7 +265,7 @@ const ClientsList = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                   <Button
                     size="sm"
                     variant="outline"

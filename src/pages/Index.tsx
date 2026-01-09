@@ -15,7 +15,7 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card">
-        <div className="w-full px-4 py-4 max-w-7xl mx-auto">
+        <div className="w-full px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl overflow-hidden flex items-center justify-center">
               <img src={liftmeLogo} alt="LIFTme-Bot" className="h-full w-full object-cover" />
@@ -29,9 +29,9 @@ const Index = () => {
       </header>
 
       {/* Main Content */}
-      <main className="w-full px-4 py-6 max-w-7xl mx-auto">
+      <main className="w-full px-0 sm:px-4 lg:px-6 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid mx-0 sm:mx-auto">
             <TabsTrigger value="slots" className="gap-2">
               <Calendar className="h-4 w-4" />
               <span className="hidden sm:inline">Расписание</span>
