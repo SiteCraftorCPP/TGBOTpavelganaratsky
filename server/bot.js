@@ -491,59 +491,54 @@ async function savePaymentScreenshot(clientId, fileUrl) {
     const filename = `${clientId}/${Date.now()}.jpg`;
     console.log('Uploading file to storage:', filename);
     
-    // Try to upload using storage API with explicit options
-    const uploadOptions = {
-      contentType: 'image/jpeg',
-      upsert: false,
-      cacheControl: '3600'
-    };
+    // Use direct REST API call to Storage API
+    const storageUrl = `${SUPABASE_URL}/storage/v1/object/payments/${filename}`;
+    console.log('Storage URL:', storageUrl);
     
-    console.log('Upload options:', uploadOptions);
+    // Upload using direct fetch to Storage API
+    const uploadResponse = await fetch(storageUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'image/jpeg',
+        'x-upsert': 'false',
+        'apikey': SUPABASE_SERVICE_ROLE_KEY
+      },
+      body: buffer
+    });
     
-    // Upload to Supabase Storage - use try-catch around upload
-    let uploadData, uploadError;
-    try {
-      const result = await supabase.storage
-        .from('payments')
-        .upload(filename, buffer, uploadOptions);
+    console.log('Upload response status:', uploadResponse.status);
+    console.log('Upload response headers:', Object.fromEntries(uploadResponse.headers.entries()));
+    
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error('Upload failed:', uploadResponse.status, uploadResponse.statusText);
+      console.error('Error response:', errorText);
       
-      uploadData = result.data;
-      uploadError = result.error;
-    } catch (uploadException) {
-      console.error('Exception during upload:', uploadException);
-      uploadError = uploadException;
-    }
-    
-    if (uploadError) {
-      console.error('Error uploading file:', uploadError);
-      console.error('Upload error type:', typeof uploadError);
-      console.error('Upload error details:', JSON.stringify(uploadError, Object.getOwnPropertyNames(uploadError), 2));
-      
-      // Check if it's a bucket error
-      if (uploadError.message && uploadError.message.includes('not found')) {
-        console.error('Bucket error detected. Checking bucket again...');
-        const { data: recheckBuckets } = await supabase.storage.listBuckets();
-        console.error('Available buckets on retry:', recheckBuckets?.map(b => b.id));
+      // Try to parse error
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error('Error JSON:', JSON.stringify(errorJson, null, 2));
+      } catch (e) {
+        console.error('Could not parse error as JSON');
       }
       
       return false;
     }
     
-    console.log('File uploaded successfully:', uploadData);
+    const uploadResult = await uploadResponse.json();
+    console.log('File uploaded successfully:', uploadResult);
     
     // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('payments')
-      .getPublicUrl(filename);
-    
-    console.log('Public URL:', urlData.publicUrl);
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/payments/${filename}`;
+    console.log('Public URL:', publicUrl);
     
     // Save to payments table
     const { error: dbError } = await supabase
       .from('payments')
       .insert({
         client_id: clientId,
-        screenshot_url: urlData.publicUrl,
+        screenshot_url: publicUrl,
       });
     
     if (dbError) {
