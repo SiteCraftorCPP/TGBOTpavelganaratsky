@@ -458,7 +458,7 @@ async function getFileUrl(fileId) {
 // Save payment screenshot
 async function savePaymentScreenshot(clientId, fileUrl) {
   try {
-    // First, check if bucket exists
+    // First, check if bucket exists and get its details
     const { data: buckets, error: listError } = await supabase.storage.listBuckets();
     
     if (listError) {
@@ -473,8 +473,10 @@ async function savePaymentScreenshot(clientId, fileUrl) {
     }
     
     console.log('Bucket "payments" found:', paymentsBucket);
+    console.log('Bucket is public:', paymentsBucket.public);
     
     // Download file from Telegram
+    console.log('Downloading file from Telegram:', fileUrl);
     const response = await fetch(fileUrl);
     if (!response.ok) {
       console.error('Failed to download file from Telegram:', response.status, response.statusText);
@@ -483,23 +485,47 @@ async function savePaymentScreenshot(clientId, fileUrl) {
     
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    console.log('File downloaded, size:', buffer.length, 'bytes');
     
     // Generate unique filename
     const filename = `${clientId}/${Date.now()}.jpg`;
-    
     console.log('Uploading file to storage:', filename);
     
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('payments')
-      .upload(filename, buffer, { 
-        contentType: 'image/jpeg',
-        upsert: false
-      });
+    // Try to upload using storage API with explicit options
+    const uploadOptions = {
+      contentType: 'image/jpeg',
+      upsert: false,
+      cacheControl: '3600'
+    };
+    
+    console.log('Upload options:', uploadOptions);
+    
+    // Upload to Supabase Storage - use try-catch around upload
+    let uploadData, uploadError;
+    try {
+      const result = await supabase.storage
+        .from('payments')
+        .upload(filename, buffer, uploadOptions);
+      
+      uploadData = result.data;
+      uploadError = result.error;
+    } catch (uploadException) {
+      console.error('Exception during upload:', uploadException);
+      uploadError = uploadException;
+    }
     
     if (uploadError) {
       console.error('Error uploading file:', uploadError);
-      console.error('Upload error details:', JSON.stringify(uploadError, null, 2));
+      console.error('Upload error type:', typeof uploadError);
+      console.error('Upload error details:', JSON.stringify(uploadError, Object.getOwnPropertyNames(uploadError), 2));
+      
+      // Check if it's a bucket error
+      if (uploadError.message && uploadError.message.includes('not found')) {
+        console.error('Bucket error detected. Checking bucket again...');
+        const { data: recheckBuckets } = await supabase.storage.listBuckets();
+        console.error('Available buckets on retry:', recheckBuckets?.map(b => b.id));
+      }
+      
       return false;
     }
     
@@ -529,6 +555,8 @@ async function savePaymentScreenshot(clientId, fileUrl) {
     return true;
   } catch (error) {
     console.error('Error processing payment screenshot:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
     return false;
   }
