@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Users, MessageCircle, Calendar, Pencil, Check, X, CalendarPlus } from "lucide-react";
+import { Users, MessageCircle, Calendar, Pencil, Check, X, CalendarPlus, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { toast } from "sonner";
@@ -170,8 +170,26 @@ const ClientsList = () => {
     return `ID: ${client.telegram_id}`;
   };
 
+  const deleteClientMutation = useMutation({
+    mutationFn: async (clientId: string) => {
+      const { error } = await supabase
+        .from("clients")
+        .delete()
+        .eq("id", clientId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["slots"] });
+      toast.success("Клиент удалён");
+    },
+    onError: () => {
+      toast.error("Ошибка удаления");
+    },
+  });
+
   return (
-    <Card>
+    <Card className="w-full max-w-7xl mx-auto">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
@@ -247,7 +265,7 @@ const ClientsList = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     size="sm"
                     variant="outline"
@@ -271,6 +289,20 @@ const ClientsList = () => {
                       <MessageCircle className="h-4 w-4" />
                       <span className="hidden sm:inline">Написать</span>
                     </a>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => {
+                      if (confirm(`Удалить клиента ${getClientName(client)}?`)) {
+                        deleteClientMutation.mutate(client.id);
+                      }
+                    }}
+                    disabled={deleteClientMutation.isPending}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Удалить</span>
                   </Button>
                   <Badge variant="outline" className="gap-1">
                     <Calendar className="h-3 w-3" />
