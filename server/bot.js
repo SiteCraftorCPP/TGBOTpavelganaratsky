@@ -11,6 +11,24 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ADMIN_TELEGRAM_ID = 783321437;
 
+// Validate environment variables
+if (!TELEGRAM_BOT_TOKEN) {
+  console.error('ERROR: TELEGRAM_BOT_TOKEN is not set!');
+  process.exit(1);
+}
+if (!SUPABASE_URL) {
+  console.error('ERROR: SUPABASE_URL is not set!');
+  process.exit(1);
+}
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('ERROR: SUPABASE_SERVICE_ROLE_KEY is not set!');
+  process.exit(1);
+}
+
+console.log('✓ Environment variables loaded');
+console.log('✓ Supabase URL:', SUPABASE_URL);
+console.log('✓ Bot token:', TELEGRAM_BOT_TOKEN ? `${TELEGRAM_BOT_TOKEN.substring(0, 10)}...` : 'NOT SET');
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Telegram API functions
@@ -440,28 +458,59 @@ async function getFileUrl(fileId) {
 // Save payment screenshot
 async function savePaymentScreenshot(clientId, fileUrl) {
   try {
+    // First, check if bucket exists
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+    
+    const paymentsBucket = buckets?.find(b => b.id === 'payments');
+    if (!paymentsBucket) {
+      console.error('Bucket "payments" not found. Available buckets:', buckets?.map(b => b.id));
+      return false;
+    }
+    
+    console.log('Bucket "payments" found:', paymentsBucket);
+    
     // Download file from Telegram
     const response = await fetch(fileUrl);
+    if (!response.ok) {
+      console.error('Failed to download file from Telegram:', response.status, response.statusText);
+      return false;
+    }
+    
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     
     // Generate unique filename
     const filename = `${clientId}/${Date.now()}.jpg`;
     
+    console.log('Uploading file to storage:', filename);
+    
     // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
       .from('payments')
-      .upload(filename, buffer, { contentType: 'image/jpeg' });
+      .upload(filename, buffer, { 
+        contentType: 'image/jpeg',
+        upsert: false
+      });
     
     if (uploadError) {
       console.error('Error uploading file:', uploadError);
+      console.error('Upload error details:', JSON.stringify(uploadError, null, 2));
       return false;
     }
+    
+    console.log('File uploaded successfully:', uploadData);
     
     // Get public URL
     const { data: urlData } = supabase.storage
       .from('payments')
       .getPublicUrl(filename);
+    
+    console.log('Public URL:', urlData.publicUrl);
     
     // Save to payments table
     const { error: dbError } = await supabase
@@ -476,9 +525,11 @@ async function savePaymentScreenshot(clientId, fileUrl) {
       return false;
     }
     
+    console.log('Payment record saved successfully');
     return true;
   } catch (error) {
     console.error('Error processing payment screenshot:', error);
+    console.error('Error stack:', error.stack);
     return false;
   }
 }
@@ -1201,7 +1252,30 @@ ${formatText}
   }
 });
 
+// Check storage bucket on startup
+async function checkStorageBucket() {
+  try {
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+    if (error) {
+      console.error('❌ Error listing buckets:', error);
+      return;
+    }
+    
+    console.log('📦 Available buckets:', buckets?.map(b => b.id) || 'none');
+    
+    const paymentsBucket = buckets?.find(b => b.id === 'payments');
+    if (paymentsBucket) {
+      console.log('✅ Bucket "payments" found and ready');
+    } else {
+      console.error('❌ Bucket "payments" NOT FOUND! Please create it in Supabase Dashboard.');
+    }
+  } catch (error) {
+    console.error('❌ Error checking storage bucket:', error);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Bot server running on port ${PORT}`);
+  await checkStorageBucket();
 });
