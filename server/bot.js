@@ -9,7 +9,11 @@ app.use(express.json());
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ADMIN_TELEGRAM_ID = 783321437;
+const ADMIN_TELEGRAM_IDS = [783321437, 6933111964];
+
+function isAdmin(telegramId) {
+  return ADMIN_TELEGRAM_IDS.includes(telegramId);
+}
 
 // Validate environment variables
 if (!TELEGRAM_BOT_TOKEN) {
@@ -121,7 +125,7 @@ function getMainMenuKeyboard(telegramId) {
     [{ text: '🆘 SOS', callback_data: 'sos' }],
   ];
 
-  if (telegramId === ADMIN_TELEGRAM_ID) {
+  if (isAdmin(telegramId)) {
     keyboard.push([{ text: '📋 Управление расписанием', url: projectUrl }]);
     keyboard.push([{ text: '📢 Рассылка', callback_data: 'admin_broadcast' }]);
   }
@@ -287,8 +291,10 @@ async function bookSlot(clientId, slotId, format = 'offline') {
     const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
     
     await sendMessage(
-      ADMIN_TELEGRAM_ID,
-      `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${clientData.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`
+      ADMIN_TELEGRAM_IDS[0],
+      `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${clientData.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`,
+      null,
+      false
     );
   }
 
@@ -415,7 +421,7 @@ async function createSosRequest(clientId, client, text) {
 
 Вы можете ответить пользователю напрямую в Telegram.`;
 
-  await sendMessage(ADMIN_TELEGRAM_ID, adminMessage);
+  await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
 
   return true;
 }
@@ -890,7 +896,7 @@ async function handleTextMessage(message, client) {
     return;
   }
   
-  if (text === '/cancel' && telegramId === ADMIN_TELEGRAM_ID) {
+  if (text === '/cancel' && isAdmin(telegramId)) {
     await clearState(chatId);
     await sendMessage(chatId, 'Отменено', getMainMenuKeyboard(telegramId));
     return;
@@ -946,7 +952,7 @@ async function handleTextMessage(message, client) {
 Сообщение:
 ${text}`;
 
-    await sendMessage(ADMIN_TELEGRAM_ID, adminMessage, null, false);
+    await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
     
     await sendMessage(
       chatId,
@@ -956,7 +962,7 @@ ${text}`;
     return;
   }
   
-  if (state?.state === 'waiting_broadcast' && telegramId === ADMIN_TELEGRAM_ID) {
+  if (state?.state === 'waiting_broadcast' && isAdmin(telegramId)) {
     await clearState(chatId);
     await sendMessage(chatId, '⏳ Рассылаю сообщение...', null, false);
     
@@ -1037,7 +1043,7 @@ async function handleCallbackQuery(callbackQuery, client) {
     return;
   }
   
-  if (data === 'admin_broadcast' && telegramId === ADMIN_TELEGRAM_ID) {
+  if (data === 'admin_broadcast' && isAdmin(telegramId)) {
     await handleBroadcast(chatId);
     return;
   }
@@ -1097,8 +1103,10 @@ async function handleCallbackQuery(callbackQuery, client) {
         const name = client.first_name || 'Клиент';
         const username = client.username ? `@${client.username}` : '';
         await sendMessage(
-          ADMIN_TELEGRAM_ID,
-          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`
+          ADMIN_TELEGRAM_IDS[0],
+          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`,
+          null,
+          false
         );
       }
     } else {
@@ -1148,15 +1156,15 @@ app.post('/webhook', async (req, res) => {
                 getMainMenuKeyboard(telegramId)
               );
               
-              // Notify admin
-              const name = client.first_name || 'Пользователь';
-              const username = client.username ? `@${client.username}` : '';
-              await sendMessage(
-                ADMIN_TELEGRAM_ID,
-                `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
-                null,
-                false
-              );
+        // Notify admin
+        const name = client.first_name || 'Пользователь';
+        const username = client.username ? `@${client.username}` : '';
+        await sendMessage(
+          ADMIN_TELEGRAM_IDS[0],
+          `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
+          null,
+          false
+        );
             } else {
               await sendMessage(
                 chatId,
