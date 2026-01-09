@@ -14,15 +14,22 @@ const ADMIN_TELEGRAM_ID = 783321437;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Telegram API functions
-async function sendMessage(chatId, text, replyMarkup) {
+async function sendMessage(chatId, text, replyMarkup, useReplyKeyboard = true) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   const body = {
     chat_id: chatId,
     text,
     parse_mode: 'HTML',
   };
+  
   if (replyMarkup) {
     body.reply_markup = replyMarkup;
+  } else if (useReplyKeyboard) {
+    body.reply_markup = {
+      keyboard: [[{ text: '📋 Меню' }]],
+      resize_keyboard: true,
+      persistent: true
+    };
   }
 
   const response = await fetch(url, {
@@ -98,6 +105,7 @@ function getMainMenuKeyboard(telegramId) {
 
   if (telegramId === ADMIN_TELEGRAM_ID) {
     keyboard.push([{ text: '📋 Управление расписанием', url: projectUrl }]);
+    keyboard.push([{ text: '📢 Рассылка', callback_data: 'admin_broadcast' }]);
   }
 
   return { inline_keyboard: keyboard };
@@ -746,11 +754,48 @@ async function handleFreeSlots(chatId, telegramId) {
 
 // Handle main menu
 async function handleMainMenu(chatId, telegramId) {
-  const projectUrl = process.env.PROJECT_URL || 'https://liftme.by';
-  const menuImageUrl = `${projectUrl}/menu-image.jpg`;
-  
   const text = `Вы в главном меню:`;
-  await sendPhoto(chatId, menuImageUrl, text, getMainMenuKeyboard(telegramId));
+  await sendMessage(chatId, text, getMainMenuKeyboard(telegramId));
+}
+
+// Handle broadcast admin function
+async function handleBroadcast(chatId) {
+  await sendMessage(
+    chatId,
+    '📢 <b>Рассылка</b>\n\nОтправьте сообщение, которое хотите разослать всем клиентам.\n\n<i>Для отмены отправьте /cancel</i>',
+    { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'main_menu' }]] }
+  );
+
+  await supabase
+    .from('bot_settings')
+    .upsert({
+      key: `state_${chatId}`,
+      value: { state: 'waiting_broadcast' },
+    }, { onConflict: 'key' });
+}
+
+async function sendBroadcast(text) {
+  const { data: clients } = await supabase
+    .from('clients')
+    .select('telegram_id');
+
+  if (!clients || clients.length === 0) {
+    return 0;
+  }
+
+  let sentCount = 0;
+  for (const client of clients) {
+    try {
+      await sendMessage(client.telegram_id, text, null, false);
+      sentCount++;
+      // Small delay to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (error) {
+      console.error(`Failed to send to ${client.telegram_id}:`, error);
+    }
+  }
+
+  return sentCount;
 }
 
 // Handle text messages
@@ -760,52 +805,20 @@ async function handleTextMessage(message, client) {
   const telegramId = message.from.id;
 
   // Check for commands
-  if (text === '/start' || text === '/menu') {
+  if (text === '/start' || text === '/menu' || text === '📋 Меню') {
     await clearState(chatId);
-    const projectUrl = process.env.PROJECT_URL || 'https://liftme.by';
-    const menuImageUrl = `${projectUrl}/menu-image.jpg`;
-    await sendPhoto(chatId, menuImageUrl, 'Вы в главном меню:', getMainMenuKeyboard(telegramId));
+    await sendMessage(chatId, 'Вы в главном меню:', getMainMenuKeyboard(telegramId));
+    return;
+  }
+  
+  if (text === '/cancel' && telegramId === ADMIN_TELEGRAM_ID) {
+    await clearState(chatId);
+    await sendMessage(chatId, 'Отменено', getMainMenuKeyboard(telegramId));
     return;
   }
 
   // Check current state
   const state = await getState(chatId);
-
-  // Handle payment screenshot
-  if (state?.state === 'waiting_payment' && message.photo && message.photo.length > 0) {
-    // Get the largest photo
-    const photo = message.photo[message.photo.length - 1];
-    const fileUrl = await getFileUrl(photo.file_id);
-    
-    if (fileUrl) {
-      const success = await savePaymentScreenshot(client.id, fileUrl);
-      
-      if (success) {
-        await clearState(chatId);
-        await sendMessage(
-          chatId,
-          '✅ Скриншот оплаты получен. Спасибо!',
-          getMainMenuKeyboard(telegramId)
-        );
-        
-        // Notify admin
-        const name = client.first_name || 'Пользователь';
-        const username = client.username ? `@${client.username}` : '';
-        await sendMessage(
-          ADMIN_TELEGRAM_ID,
-          `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`
-        );
-        return;
-      }
-    }
-    
-    await sendMessage(
-      chatId,
-      '❌ Ошибка сохранения скриншота. Попробуйте ещё раз.',
-      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
-    );
-    return;
-  }
 
   if (state?.state === 'waiting_diary') {
     await saveDiaryEntry(client.id, text);
@@ -854,11 +867,25 @@ async function handleTextMessage(message, client) {
 Сообщение:
 ${text}`;
 
-    await sendMessage(ADMIN_TELEGRAM_ID, adminMessage);
+    await sendMessage(ADMIN_TELEGRAM_ID, adminMessage, null, false);
     
     await sendMessage(
       chatId,
       '✅ Сообщение отправлено психологу.',
+      getMainMenuKeyboard(telegramId)
+    );
+    return;
+  }
+  
+  if (state?.state === 'waiting_broadcast' && telegramId === ADMIN_TELEGRAM_ID) {
+    await clearState(chatId);
+    await sendMessage(chatId, '⏳ Рассылаю сообщение...', null, false);
+    
+    const sentCount = await sendBroadcast(text);
+    
+    await sendMessage(
+      chatId,
+      `✅ Рассылка завершена!\n\nОтправлено: ${sentCount} клиентам`,
       getMainMenuKeyboard(telegramId)
     );
     return;
@@ -928,6 +955,11 @@ async function handleCallbackQuery(callbackQuery, client) {
 
   if (data === 'sos') {
     await handleSos(chatId, client);
+    return;
+  }
+  
+  if (data === 'admin_broadcast' && telegramId === ADMIN_TELEGRAM_ID) {
+    await handleBroadcast(chatId);
     return;
   }
 
@@ -1008,7 +1040,57 @@ app.post('/webhook', async (req, res) => {
 
     if (update.message) {
       const client = await getOrCreateClient(update.message.from);
-      await handleTextMessage(update.message, client);
+      
+      // Handle photos separately from text messages
+      if (update.message.photo) {
+        const chatId = update.message.chat.id;
+        const telegramId = update.message.from.id;
+        const state = await getState(chatId);
+        
+        // Handle payment screenshot
+        if (state?.state === 'waiting_payment') {
+          // Get the largest photo
+          const photo = update.message.photo[update.message.photo.length - 1];
+          const fileUrl = await getFileUrl(photo.file_id);
+          
+          if (fileUrl) {
+            const success = await savePaymentScreenshot(client.id, fileUrl);
+            
+            if (success) {
+              await clearState(chatId);
+              await sendMessage(
+                chatId,
+                '✅ Скриншот оплаты получен. Спасибо!',
+                getMainMenuKeyboard(telegramId)
+              );
+              
+              // Notify admin
+              const name = client.first_name || 'Пользователь';
+              const username = client.username ? `@${client.username}` : '';
+              await sendMessage(
+                ADMIN_TELEGRAM_ID,
+                `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
+                null,
+                false
+              );
+            } else {
+              await sendMessage(
+                chatId,
+                '❌ Ошибка сохранения скриншота. Попробуйте ещё раз.',
+                { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+              );
+            }
+          } else {
+            await sendMessage(
+              chatId,
+              '❌ Не удалось получить файл. Попробуйте ещё раз.',
+              { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+            );
+          }
+        }
+      } else {
+        await handleTextMessage(update.message, client);
+      }
     }
 
     if (update.callback_query) {
@@ -1020,6 +1102,102 @@ app.post('/webhook', async (req, res) => {
   } catch (error) {
     console.error('Error processing update:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint for booking client from admin panel
+app.post('/book-for-client', async (req, res) => {
+  try {
+    const { clientId, date, time, format = 'offline' } = req.body;
+
+    if (!clientId || !date || !time) {
+      return res.status(400).json({ error: 'clientId, date, and time are required' });
+    }
+
+    // Get client info
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', clientId)
+      .single();
+
+    if (clientError || !client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Check if slot exists for this date and time
+    const { data: existingSlot } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('date', date)
+      .eq('time', time)
+      .maybeSingle();
+
+    let slotId;
+
+    if (existingSlot) {
+      // Check if slot is free
+      if (existingSlot.status !== 'free') {
+        return res.status(400).json({ error: 'Slot is already booked' });
+      }
+      slotId = existingSlot.id;
+    } else {
+      // Create a new slot
+      const { data: newSlot, error: slotError } = await supabase
+        .from('slots')
+        .insert({
+          date,
+          time,
+          status: 'free',
+          available_formats: 'both'
+        })
+        .select()
+        .single();
+
+      if (slotError || !newSlot) {
+        return res.status(500).json({ error: 'Failed to create slot' });
+      }
+      slotId = newSlot.id;
+    }
+
+    // Book the slot
+    const { error: updateError } = await supabase
+      .from('slots')
+      .update({ status: 'booked', client_id: clientId, format })
+      .eq('id', slotId);
+
+    if (updateError) {
+      return res.status(500).json({ error: 'Failed to book slot' });
+    }
+
+    // Create booking record
+    const { error: bookingError } = await supabase
+      .from('bookings')
+      .insert({
+        client_id: clientId,
+        slot_id: slotId,
+        status: 'active',
+      });
+
+    if (bookingError) {
+      return res.status(500).json({ error: 'Failed to create booking' });
+    }
+
+    // Send notification to client
+    const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
+    const clientMessage = `📅 <b>Вам назначена консультация!</b>
+
+📆 ${formatDate(date)} в ${formatTime(time)}
+${formatText}
+
+Напоминания придут за 24 часа и за 1 час до сессии.`;
+
+    await sendMessage(client.telegram_id, clientMessage, null, false);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in book-for-client:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

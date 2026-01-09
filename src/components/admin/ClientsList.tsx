@@ -89,12 +89,16 @@ const ClientsList = () => {
 
   const bookForClientMutation = useMutation({
     mutationFn: async ({ clientId, date, time, format }: { clientId: string; date: string; time: string; format: string }) => {
-      const response = await supabase.functions.invoke('book-for-client', {
-        body: { clientId, date, time, format }
+      const response = await fetch('https://liftme.by/book-for-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, date, time, format })
       });
-      if (response.error) throw response.error;
-      if (response.data?.error) throw new Error(response.data.error);
-      return response.data;
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to book');
+      }
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
@@ -243,7 +247,7 @@ const ClientsList = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <Button
                     size="sm"
                     variant="outline"
@@ -251,7 +255,22 @@ const ClientsList = () => {
                     onClick={() => openBookingDialog(client)}
                   >
                     <CalendarPlus className="h-4 w-4" />
-                    Назначить
+                    <span className="hidden sm:inline">Назначить</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    asChild
+                  >
+                    <a
+                      href={`https://t.me/${client.username || client.telegram_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      <span className="hidden sm:inline">Написать</span>
+                    </a>
                   </Button>
                   <Badge variant="outline" className="gap-1">
                     <Calendar className="h-3 w-3" />

@@ -15,21 +15,21 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 py-4">
+        <div className="w-full px-4 py-4 max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl overflow-hidden flex items-center justify-center">
               <img src={liftmeLogo} alt="LIFTme-Bot" className="h-full w-full object-cover" />
             </div>
             <div>
               <h1 className="text-xl font-semibold text-foreground">LIFTme-Bot</h1>
-              <p className="text-sm text-muted-foreground">Панель управления</p>
+              <p className="text-sm text-muted-foreground">Твой Ассистент</p>
             </div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-6">
+      <main className="w-full px-4 py-6 max-w-7xl mx-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
             <TabsTrigger value="slots" className="gap-2">

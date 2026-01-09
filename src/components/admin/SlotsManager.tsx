@@ -37,13 +37,14 @@ const SlotsManager = () => {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [newSlotTime, setNewSlotTime] = useState("10:00");
   const [newSlotFormats, setNewSlotFormats] = useState<"offline" | "online" | "both">("both");
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   const { data: slots = [], isLoading } = useQuery({
     queryKey: ["slots"],
     queryFn: async () => {
-      // Get date from 24 hours ago
+      // Get date from 48 hours ago
       const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 1);
+      cutoffDate.setDate(cutoffDate.getDate() - 2);
       const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
       const { data, error } = await supabase
@@ -118,9 +119,9 @@ const SlotsManager = () => {
   };
 
   const timeOptions = [];
-  for (let h = 8; h <= 20; h++) {
+  for (let h = 7; h <= 22; h++) {
     timeOptions.push(`${h.toString().padStart(2, "0")}:00`);
-    if (h < 20) timeOptions.push(`${h.toString().padStart(2, "0")}:30`);
+    if (h < 22) timeOptions.push(`${h.toString().padStart(2, "0")}:30`);
   }
 
   // Group slots by date
@@ -143,7 +144,7 @@ const SlotsManager = () => {
         <CardContent className="space-y-4">
           <div>
             <Label>Дата</Label>
-            <Popover>
+            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
                   <CalendarIcon className="mr-2 h-4 w-4" />
@@ -154,7 +155,10 @@ const SlotsManager = () => {
                 <Calendar
                   mode="single"
                   selected={selectedDate}
-                  onSelect={setSelectedDate}
+                  onSelect={(date) => {
+                    setSelectedDate(date);
+                    setCalendarOpen(false);
+                  }}
                   locale={ru}
                   disabled={(date) => date < new Date()}
                 />
