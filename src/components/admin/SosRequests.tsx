@@ -76,7 +76,7 @@ const SosRequests = () => {
   return (
     <div className="space-y-6">
       {/* New Requests */}
-      <Card className={newRequests.length > 0 ? "border-destructive rounded-none sm:rounded-lg" : "rounded-none sm:rounded-lg"}>
+      <Card className="rounded-none sm:rounded-lg border-0 sm:border">
         <CardHeader className="px-4 sm:px-6">
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className={`h-5 w-5 ${newRequests.length > 0 ? "text-destructive" : ""}`} />
@@ -93,15 +93,15 @@ const SosRequests = () => {
               {newRequests.map((request) => (
                 <div
                   key={request.id}
-                  className="p-4 rounded-lg border border-destructive/50 bg-destructive/5"
+                  className="p-4 rounded-lg border border-destructive/50 bg-destructive/5 overflow-hidden"
                 >
                   <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 w-full">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className="font-medium text-foreground">
+                        <span className="font-medium text-foreground break-words">
                           {getClientName(request.clients)}
                         </span>
-                        <Badge variant="destructive">Новый</Badge>
+                        <Badge variant="destructive" className="shrink-0">Новый</Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
                         {format(new Date(request.created_at), "d MMM yyyy, HH:mm", { locale: ru })}
@@ -110,7 +110,7 @@ const SosRequests = () => {
                         <p className="text-foreground whitespace-pre-wrap break-words">{request.text}</p>
                       )}
                     </div>
-                    <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[120px]">
+                    <div className="flex flex-col gap-2 w-full sm:w-auto sm:min-w-[120px] shrink-0">
                       {request.clients?.telegram_id && (
                         <Button size="sm" variant="outline" className="w-full" asChild>
                           <a
