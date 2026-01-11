@@ -1061,6 +1061,44 @@ app.put('/api/clients/:id', async (req, res) => {
 app.delete('/api/clients/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Get client info before deletion
+    const client = await db.getClientById(id);
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+    
+    // Get active bookings for this client
+    const bookings = await db.getClientBookings(id);
+    
+    // Cancel all active bookings and send notifications
+    for (const booking of bookings) {
+      const slot = await db.getSlotById(booking.slot_id);
+      if (slot) {
+        // Cancel booking
+        await db.cancelBooking(booking.id);
+        // Free the slot
+        await db.updateSlot(booking.slot_id, { status: 'free', client_id: null, format: null });
+        
+        // Send notification to client
+        if (client.telegram_id) {
+          const name = client.first_name || 'Уважаемый клиент';
+          const message = `❌ <b>Запись отменена</b>
+
+${name}, к сожалению, ваша консультация на ${formatDate(slot.date)} в ${formatTime(slot.time)} была отменена.
+
+Пожалуйста, выберите другое удобное время для записи.`;
+          
+          try {
+            await sendMessage(client.telegram_id, message, null, false);
+          } catch (error) {
+            console.error('Error sending cancellation notification:', error);
+          }
+        }
+      }
+    }
+    
+    // Delete client (will cascade delete related records)
     await db.deleteClient(id);
     res.json({ success: true });
   } catch (error) {
