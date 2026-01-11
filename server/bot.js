@@ -169,11 +169,15 @@ async function getSlotsForDate(date) {
 
 // Get client's upcoming bookings only
 async function getClientBookings(clientId) {
+  console.log('📅 getClientBookings: querying DB for clientId:', clientId);
   const bookings = await db.getClientBookings(clientId);
+  console.log('📅 getClientBookings: raw bookings from DB:', JSON.stringify(bookings, null, 2));
+  console.log('📅 getClientBookings: number of bookings:', bookings.length);
   
   const now = new Date();
   const today = now.toISOString().split('T')[0];
   const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+  console.log('📅 Filter criteria:', { today, currentTime });
   
   // Filter only upcoming bookings
   const filtered = bookings.filter(booking => {
