@@ -669,7 +669,10 @@ async function sendBroadcast(text) {
     return 0;
   }
 
+  console.log(`📢 Broadcasting to ${clients.length} clients`);
   let sentCount = 0;
+  let failedCount = 0;
+  
   for (const client of clients) {
     try {
       await sendMessage(client.telegram_id, text, null, false);
@@ -677,10 +680,12 @@ async function sendBroadcast(text) {
       // Small delay to avoid rate limits
       await new Promise(resolve => setTimeout(resolve, 50));
     } catch (error) {
-      console.error(`Failed to send to ${client.telegram_id}:`, error);
+      failedCount++;
+      console.error(`Failed to send to ${client.telegram_id}:`, error.message || error);
     }
   }
 
+  console.log(`📢 Broadcast complete: ${sentCount} sent, ${failedCount} failed out of ${clients.length} total`);
   return sentCount;
 }
 
