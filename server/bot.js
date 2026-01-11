@@ -1072,11 +1072,14 @@ app.post('/book-for-client', async (req, res) => {
     await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
     await db.createBooking(clientId, slotId);
 
+    // Get slot to format date properly
+    const slot = await db.getSlotById(slotId);
+    
     // Send notification to client
     const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
     const clientMessage = `📅 <b>Вам назначена консультация!</b>
 
-📆 ${formatDate(date)} в ${formatTime(time)}
+📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}
 ${formatText}
 
 Напоминания придут за 24 часа и за 1 час до сессии.`;
