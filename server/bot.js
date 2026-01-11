@@ -169,26 +169,57 @@ async function getSlotsForDate(date) {
 
 // Get client's upcoming bookings only
 async function getClientBookings(clientId) {
+  const bookings = await db.getClientBookings(clientId);
+  console.log('📅 getClientBookings: raw bookings from DB', JSON.stringify(bookings, null, 2));
+  
   const now = new Date();
   const today = now.toISOString().split('T')[0];
   const currentTime = now.toTimeString().slice(0, 5);
-
-  const bookings = await db.getClientBookings(clientId);
+  console.log('📅 Filter criteria:', { today, currentTime });
 
   // Filter only upcoming bookings
-  return bookings.filter(booking => {
-    if (!booking.date) return false;
-    if (booking.date > today) return true;
-    if (booking.date === today && booking.time > currentTime) return true;
-    return false;
-  }).map(booking => ({
-    ...booking,
-    slots: {
-      date: booking.date,
-      time: booking.time,
-      format: booking.format
+  const filtered = bookings.filter(booking => {
+    if (!booking.date) {
+      console.log('❌ Booking has no date:', booking);
+      return false;
     }
-  }));
+    
+    // Convert date to string if needed
+    const bookingDate = booking.date instanceof Date 
+      ? booking.date.toISOString().split('T')[0]
+      : (typeof booking.date === 'string' ? booking.date.split('T')[0] : String(booking.date));
+    
+    console.log('📅 Checking booking:', { bookingDate, bookingTime: booking.time, today, currentTime });
+    
+    if (bookingDate > today) {
+      console.log('✅ Booking is in future (different day)');
+      return true;
+    }
+    if (bookingDate === today && booking.time > currentTime) {
+      console.log('✅ Booking is today but later');
+      return true;
+    }
+    console.log('❌ Booking is in the past');
+    return false;
+  });
+  
+  console.log('📅 Filtered bookings:', filtered.length, 'out of', bookings.length);
+  
+  return filtered.map(booking => {
+    const dateStr = booking.date instanceof Date 
+      ? booking.date.toISOString().split('T')[0]
+      : (typeof booking.date === 'string' ? booking.date.split('T')[0] : String(booking.date));
+    
+    return {
+      ...booking,
+      date: dateStr,
+      slots: {
+        date: dateStr,
+        time: booking.time,
+        format: booking.format
+      }
+    };
+  });
 }
 
 // Book a slot with format
