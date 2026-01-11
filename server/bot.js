@@ -860,6 +860,12 @@ async function handleCallbackQuery(callbackQuery, client) {
 app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
+    console.log('📥 Webhook received:', {
+      hasMessage: !!update.message,
+      hasCallbackQuery: !!update.callback_query,
+      callbackData: update.callback_query?.data,
+      messageText: update.message?.text
+    });
 
     if (update.message) {
       const client = await getOrCreateClient(update.message.from);
