@@ -462,8 +462,14 @@ async function handleSelectTime(chatId, date) {
 
       keyboard.push([{ text: '◀️ Назад', callback_data: 'main_menu' }]);
 
+      console.log('📅 Sending bookings list');
       await sendMessage(chatId, text, { inline_keyboard: keyboard });
+      console.log('✅ Bookings list sent');
+    } catch (error) {
+      console.error('❌ Error in handleMyBookings:', error);
+      throw error;
     }
+}
 
 // Handle diary with buttons
 async function handleDiary(chatId, clientId, telegramId) {
