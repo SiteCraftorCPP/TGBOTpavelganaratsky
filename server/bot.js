@@ -333,16 +333,20 @@ async function getFileUrl(fileId) {
 
 // Handle booking flow - step 1: select day
 async function handleBookSession(chatId, telegramId) {
-  const dates = await getAvailableDates();
+  try {
+    console.log('📅 handleBookSession: getting available dates');
+    const dates = await getAvailableDates();
+    console.log('📅 Available dates:', dates);
 
-  if (dates.length === 0) {
-    await sendMessage(
-      chatId,
-      '😔 К сожалению, свободных слотов нет.\n\nПопробуйте позже или свяжитесь с психологом напрямую.',
-      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
-    );
-    return;
-  }
+    if (dates.length === 0) {
+      console.log('📅 No available dates');
+      await sendMessage(
+        chatId,
+        '😔 К сожалению, свободных слотов нет.\n\nПопробуйте позже или свяжитесь с психологом напрямую.',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+      return;
+    }
 
   const keyboard = dates.map((date) => [{
     text: formatDate(date),
@@ -412,21 +416,26 @@ async function handleSelectFormat(chatId, slotId) {
 
 // Handle my bookings - only upcoming
 async function handleMyBookings(chatId, clientId, telegramId) {
-  const bookings = await getClientBookings(clientId);
+  try {
+    console.log('📅 handleMyBookings: getting bookings for clientId:', clientId);
+    const bookings = await getClientBookings(clientId);
+    console.log('📅 Client bookings:', bookings.length);
 
-  if (bookings.length === 0) {
-    await sendMessage(
-      chatId,
-      '🗓 <b>Моя запись</b>\n\nУ вас нет предстоящих записей.\n\nХотите записаться на консультацию?',
-      {
-        inline_keyboard: [
-          [{ text: '📅 Записаться', callback_data: 'book_session' }],
-          [{ text: '◀️ Назад', callback_data: 'main_menu' }],
-        ]
-      }
-    );
-    return;
-  }
+    if (bookings.length === 0) {
+      console.log('📅 No bookings, sending empty message');
+      await sendMessage(
+        chatId,
+        '🗓 <b>Моя запись</b>\n\nУ вас нет предстоящих записей.\n\nХотите записаться на консультацию?',
+        { 
+          inline_keyboard: [
+            [{ text: '📅 Записаться', callback_data: 'book_session' }],
+            [{ text: '◀️ Назад', callback_data: 'main_menu' }],
+          ] 
+        }
+      );
+      console.log('✅ Empty bookings message sent');
+      return;
+    }
 
   let text = '🗓 <b>Предстоящие записи:</b>\n\n';
   const keyboard = [];
@@ -720,7 +729,7 @@ async function handleCallbackQuery(callbackQuery, client) {
   const chatId = callbackQuery.message?.chat.id;
   const data = callbackQuery.data;
   const telegramId = callbackQuery.from.id;
-  
+
   console.log('🔔 handleCallbackQuery:', { chatId, telegramId, data, clientId: client.id });
 
   if (!chatId || !data) {
@@ -743,12 +752,26 @@ async function handleCallbackQuery(callbackQuery, client) {
   }
 
   if (data === 'book_session') {
-    await handleBookSession(chatId, telegramId);
+    try {
+      console.log('📅 Calling handleBookSession');
+      await handleBookSession(chatId, telegramId);
+      console.log('✅ handleBookSession completed');
+    } catch (error) {
+      console.error('❌ Error in handleBookSession:', error);
+      await sendMessage(chatId, '❌ Произошла ошибка. Попробуйте позже.', getMainMenuKeyboard(telegramId));
+    }
     return;
   }
 
   if (data === 'my_bookings') {
-    await handleMyBookings(chatId, client.id, telegramId);
+    try {
+      console.log('📅 Calling handleMyBookings');
+      await handleMyBookings(chatId, client.id, telegramId);
+      console.log('✅ handleMyBookings completed');
+    } catch (error) {
+      console.error('❌ Error in handleMyBookings:', error);
+      await sendMessage(chatId, '❌ Произошла ошибка. Попробуйте позже.', getMainMenuKeyboard(telegramId));
+    }
     return;
   }
 
