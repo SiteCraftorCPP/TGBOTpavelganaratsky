@@ -1,7 +1,8 @@
 const express = require('express');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const db = require('./db');
 const { initStorage, savePaymentScreenshot } = require('./storage');
-require('dotenv').config();
 
 const app = express();
 app.use(express.json());
