@@ -10,7 +10,7 @@ const BotSetup = () => {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   
-  const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/telegram-bot`;
+  const webhookUrl = `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'https://liftme.by'}/webhook`;
 
   const copyToClipboard = async () => {
     await navigator.clipboard.writeText(webhookUrl);

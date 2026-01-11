@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,35 +42,23 @@ const SlotsManager = () => {
   const { data: slots = [], isLoading } = useQuery({
     queryKey: ["slots"],
     queryFn: async () => {
-      // Get date from 48 hours ago
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 2);
-      const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
-
-      const { data, error } = await supabase
-        .from("slots")
-        .select(`
-          *,
-          clients (
-            first_name,
-            last_name,
-            username,
-            telegram_id
-          )
-        `)
-        .gte("date", cutoffDateStr)
-        .order("date", { ascending: true })
-        .order("time", { ascending: true });
-
-      if (error) throw error;
-      return data as Slot[];
+      const data = await api.getSlots();
+      // Transform data to match expected format
+      return data.map((slot: any) => ({
+        ...slot,
+        clients: slot.first_name || slot.last_name || slot.username ? {
+          first_name: slot.first_name,
+          last_name: slot.last_name,
+          username: slot.username,
+          telegram_id: slot.telegram_id,
+        } : null,
+      })) as Slot[];
     },
   });
 
   const createSlotMutation = useMutation({
     mutationFn: async ({ date, time, available_formats }: { date: string; time: string; available_formats: string }) => {
-      const { error } = await supabase.from("slots").insert({ date, time, available_formats });
-      if (error) throw error;
+      await api.createSlot({ date, time, available_formats });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["slots"] });
@@ -83,8 +71,7 @@ const SlotsManager = () => {
 
   const deleteSlotMutation = useMutation({
     mutationFn: async (slotId: string) => {
-      const { error } = await supabase.from("slots").delete().eq("id", slotId);
-      if (error) throw error;
+      await api.deleteSlot(slotId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["slots"] });
@@ -97,10 +84,15 @@ const SlotsManager = () => {
 
   const cancelBookingMutation = useMutation({
     mutationFn: async (slotId: string) => {
-      const { data, error } = await supabase.functions.invoke("cancel-booking-admin", {
-        body: { slotId },
+      const response = await fetch('https://liftme.by/cancel-booking-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId })
       });
-      if (error) throw error;
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to cancel booking');
+      }
       return data;
     },
     onSuccess: () => {

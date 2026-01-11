@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BookOpen } from "lucide-react";
@@ -21,21 +21,16 @@ const DiaryEntries = () => {
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ["diary_entries"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("diary_entries")
-        .select(`
-          *,
-          clients (
-            first_name,
-            last_name,
-            username
-          )
-        `)
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      return data as DiaryEntry[];
+      const data = await api.getDiaryEntries();
+      // Transform data to match expected format
+      return data.map((entry: any) => ({
+        ...entry,
+        clients: entry.first_name || entry.last_name || entry.username ? {
+          first_name: entry.first_name,
+          last_name: entry.last_name,
+          username: entry.username,
+        } : null,
+      })) as DiaryEntry[];
     },
   });
 

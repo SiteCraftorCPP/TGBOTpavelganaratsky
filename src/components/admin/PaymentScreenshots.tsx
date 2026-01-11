@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,18 +27,11 @@ const PaymentScreenshots = () => {
   const queryClient = useQueryClient();
   const [cardNumber, setCardNumber] = useState("");
 
-  // Fetch payment card number from bot_settings
+  // Fetch payment card number
   const { data: cardSetting, isLoading: isLoadingCard } = useQuery({
     queryKey: ["payment_card"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bot_settings")
-        .select("value")
-        .eq("key", "payment_card")
-        .maybeSingle();
-
-      if (error) throw error;
-      return data?.value as { card_number: string } | null;
+      return await api.getPaymentCard();
     },
   });
 
@@ -51,16 +44,7 @@ const PaymentScreenshots = () => {
   // Save card number mutation
   const saveCardMutation = useMutation({
     mutationFn: async (newCardNumber: string) => {
-      const { error } = await supabase
-        .from("bot_settings")
-        .upsert(
-          {
-            key: "payment_card",
-            value: { card_number: newCardNumber },
-          },
-          { onConflict: "key" }
-        );
-      if (error) throw error;
+      await api.savePaymentCard(newCardNumber);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment_card"] });
@@ -71,39 +55,31 @@ const PaymentScreenshots = () => {
     },
   });
 
-  // Fetch payments newer than 7 days
-  const { data: payments, isLoading } = useQuery({
+  // Fetch payments (API returns only recent ones)
+  const { data: payments = [], isLoading } = useQuery({
     queryKey: ["payments"],
     queryFn: async () => {
+      const data = await api.getPayments();
+      // Filter payments newer than 7 days on client side
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      
-      const { data, error } = await supabase
-        .from("payments")
-        .select(`
-          *,
-          clients (
-            first_name,
-            last_name,
-            username,
-            telegram_id
-          )
-        `)
-        .gte("created_at", weekAgo.toISOString())
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data as Payment[];
+      return data
+        .filter((p: any) => new Date(p.created_at) >= weekAgo)
+        .map((p: any) => ({
+          ...p,
+          clients: p.first_name || p.last_name || p.username ? {
+            first_name: p.first_name,
+            last_name: p.last_name,
+            username: p.username,
+            telegram_id: p.telegram_id,
+          } : null,
+        })) as Payment[];
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (paymentId: string) => {
-      const { error } = await supabase
-        .from("payments")
-        .delete()
-        .eq("id", paymentId);
-      if (error) throw error;
+      await api.deletePayment(paymentId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payments"] });

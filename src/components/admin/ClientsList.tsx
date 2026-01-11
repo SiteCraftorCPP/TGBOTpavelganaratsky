@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ const ClientsList = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
-  
+
   // Booking dialog state
   const [bookingDialogOpen, setBookingDialogOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -51,30 +51,22 @@ const ClientsList = () => {
   const { data: clients = [], isLoading } = useQuery({
     queryKey: ["clients"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("clients")
-        .select(`
-          *,
-          bookings(count),
-          diary_entries(count)
-        `)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data as Client[];
+      const data = await api.getClients();
+      // Transform data to match expected format
+      return data.map((client: any) => ({
+        ...client,
+        bookings: [{ count: client.bookings_count || 0 }],
+        diary_entries: [{ count: client.diary_count || 0 }],
+      })) as Client[];
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, first_name, last_name }: { id: string; first_name: string; last_name: string }) => {
-      const { error } = await supabase
-        .from("clients")
-        .update({ 
-          first_name: first_name.trim() || null, 
-          last_name: last_name.trim() || null 
-        })
-        .eq("id", id);
-      if (error) throw error;
+      await api.updateClient(id, {
+        first_name: first_name.trim() || null,
+        last_name: last_name.trim() || null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
@@ -158,7 +150,7 @@ const ClientsList = () => {
   };
 
   const timeSlots = [
-    "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", 
+    "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
     "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"
   ];
 
@@ -172,11 +164,7 @@ const ClientsList = () => {
 
   const deleteClientMutation = useMutation({
     mutationFn: async (clientId: string) => {
-      const { error } = await supabase
-        .from("clients")
-        .delete()
-        .eq("id", clientId);
-      if (error) throw error;
+      await api.deleteClient(clientId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
@@ -374,7 +362,7 @@ const ClientsList = () => {
                 <Button variant="outline" onClick={closeBookingDialog}>
                   Отмена
                 </Button>
-                <Button 
+                <Button
                   onClick={handleBookForClient}
                   disabled={!bookingDate || !bookingTime || bookForClientMutation.isPending}
                 >

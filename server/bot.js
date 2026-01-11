@@ -1,14 +1,24 @@
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
+const db = require('./db');
+const { initStorage, savePaymentScreenshot } = require('./storage');
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
+// CORS middleware for admin panel
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ADMIN_TELEGRAM_IDS = [783321437, 6933111964];
 
 function isAdmin(telegramId) {
@@ -20,20 +30,9 @@ if (!TELEGRAM_BOT_TOKEN) {
   console.error('ERROR: TELEGRAM_BOT_TOKEN is not set!');
   process.exit(1);
 }
-if (!SUPABASE_URL) {
-  console.error('ERROR: SUPABASE_URL is not set!');
-  process.exit(1);
-}
-if (!SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('ERROR: SUPABASE_SERVICE_ROLE_KEY is not set!');
-  process.exit(1);
-}
 
 console.log('✓ Environment variables loaded');
-console.log('✓ Supabase URL:', SUPABASE_URL);
 console.log('✓ Bot token:', TELEGRAM_BOT_TOKEN ? `${TELEGRAM_BOT_TOKEN.substring(0, 10)}...` : 'NOT SET');
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Telegram API functions
 async function sendMessage(chatId, text, replyMarkup, useReplyKeyboard = true) {
@@ -134,54 +133,18 @@ function getMainMenuKeyboard(telegramId) {
 }
 
 async function getOrCreateClient(telegramUser) {
-  const { data: existingClient } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('telegram_id', telegramUser.id)
-    .maybeSingle();
-
-  if (existingClient) {
-    return existingClient;
+  let client = await db.getClientByTelegramId(telegramUser.id);
+  
+  if (!client) {
+    client = await db.createClient(telegramUser);
   }
-
-  const { data: newClient, error } = await supabase
-    .from('clients')
-    .insert({
-      telegram_id: telegramUser.id,
-      first_name: telegramUser.first_name ?? null,
-      last_name: telegramUser.last_name ?? null,
-      username: telegramUser.username ?? null,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating client:', error);
-    throw error;
-  }
-
-  return newClient;
+  
+  return client;
 }
 
 // Get available slots
 async function getAvailableSlots() {
-  const today = new Date().toISOString().split('T')[0];
-  
-  const { data: slots, error } = await supabase
-    .from('slots')
-    .select('*')
-    .eq('status', 'free')
-    .gte('date', today)
-    .order('date', { ascending: true })
-    .order('time', { ascending: true })
-    .limit(30);
-
-  if (error) {
-    console.error('Error fetching slots:', error);
-    return [];
-  }
-
-  return slots || [];
+  return await db.getAvailableSlots(30);
 }
 
 // Get unique dates from available slots
@@ -193,19 +156,7 @@ async function getAvailableDates() {
 
 // Get slots for a specific date
 async function getSlotsForDate(date) {
-  const { data: slots, error } = await supabase
-    .from('slots')
-    .select('*')
-    .eq('status', 'free')
-    .eq('date', date)
-    .order('time', { ascending: true });
-
-  if (error) {
-    console.error('Error fetching slots for date:', error);
-    return [];
-  }
-
-  return slots || [];
+  return await db.getSlotsForDate(date);
 }
 
 // Get client's upcoming bookings only
@@ -214,85 +165,42 @@ async function getClientBookings(clientId) {
   const today = now.toISOString().split('T')[0];
   const currentTime = now.toTimeString().slice(0, 5);
   
-  const { data: bookings, error } = await supabase
-    .from('bookings')
-    .select(`
-      *,
-      slots (*)
-    `)
-    .eq('client_id', clientId)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching bookings:', error);
-    return [];
-  }
-
+  const bookings = await db.getClientBookings(clientId);
+  
   // Filter only upcoming bookings
-  const upcomingBookings = (bookings || []).filter(booking => {
-    const slot = booking.slots;
-    if (!slot) return false;
-    if (slot.date > today) return true;
-    if (slot.date === today && slot.time > currentTime) return true;
+  return bookings.filter(booking => {
+    if (!booking.date) return false;
+    if (booking.date > today) return true;
+    if (booking.date === today && booking.time > currentTime) return true;
     return false;
-  });
-
-  return upcomingBookings;
+  }).map(booking => ({
+    ...booking,
+    slots: {
+      date: booking.date,
+      time: booking.time,
+      format: booking.format
+    }
+  }));
 }
 
 // Book a slot with format
 async function bookSlot(clientId, slotId, format = 'offline') {
-  // Get slot info for notification
-  const { data: slot } = await supabase
-    .from('slots')
-    .select('*')
-    .eq('id', slotId)
-    .single();
-
+  const slot = await db.getSlotById(slotId);
   if (!slot) return false;
 
-  // Start transaction: update slot and create booking
-  const { error: slotError } = await supabase
-    .from('slots')
-    .update({ status: 'booked', client_id: clientId, format })
-    .eq('id', slotId)
-    .eq('status', 'free');
+  await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
+  await db.createBooking(clientId, slotId);
 
-  if (slotError) {
-    console.error('Error updating slot:', slotError);
-    return false;
-  }
-
-  const { error: bookingError } = await supabase
-    .from('bookings')
-    .insert({
-      client_id: clientId,
-      slot_id: slotId,
-      status: 'active',
-    });
-
-  if (bookingError) {
-    console.error('Error creating booking:', bookingError);
-    return false;
-  }
-
-  // Get client info for notification
-  const { data: clientData } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('id', clientId)
-    .single();
-
-  // Notify admin about new booking
-  if (clientData) {
-    const name = clientData.first_name || 'Клиент';
-    const username = clientData.username ? `@${clientData.username}` : '';
+  const client = await db.getClientById(clientId);
+  
+  if (client) {
+    const name = client.first_name || 'Клиент';
+    const username = client.username ? `@${client.username}` : '';
     const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
     
     await sendMessage(
       ADMIN_TELEGRAM_IDS[0],
-      `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${clientData.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`,
+      `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`,
       null,
       false
     );
@@ -303,22 +211,17 @@ async function bookSlot(clientId, slotId, format = 'offline') {
 
 // Cancel booking with 24h check for clients
 async function cancelBooking(bookingId, isAdminCancel = false) {
-  const { data: booking, error: fetchError } = await supabase
-    .from('bookings')
-    .select('slot_id, client_id')
-    .eq('id', bookingId)
-    .single();
+  const bookingResult = await db.query(
+    'SELECT slot_id, client_id FROM bookings WHERE id = $1',
+    [bookingId]
+  );
 
-  if (fetchError || !booking) {
+  if (!bookingResult.rows[0]) {
     return { success: false, error: 'Запись не найдена' };
   }
 
-  // Get slot info
-  const { data: slot } = await supabase
-    .from('slots')
-    .select('*')
-    .eq('id', booking.slot_id)
-    .single();
+  const booking = bookingResult.rows[0];
+  const slot = await db.getSlotById(booking.slot_id);
 
   if (!slot) {
     return { success: false, error: 'Слот не найден' };
@@ -335,83 +238,39 @@ async function cancelBooking(bookingId, isAdminCancel = false) {
     }
   }
 
-  // Get client info for notification
-  const { data: clientData } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('id', booking.client_id)
-    .single();
+  const client = await db.getClientById(booking.client_id);
+  await db.cancelBooking(bookingId);
+  await db.updateSlot(booking.slot_id, { status: 'free', client_id: null, format: null });
 
-  const { error: bookingError } = await supabase
-    .from('bookings')
-    .update({ status: 'canceled' })
-    .eq('id', bookingId);
-
-  if (bookingError) {
-    return { success: false, error: 'Ошибка отмены записи' };
-  }
-
-  const { error: slotError } = await supabase
-    .from('slots')
-    .update({ status: 'free', client_id: null, format: null })
-    .eq('id', booking.slot_id);
-
-  if (slotError) {
-    return { success: false, error: 'Ошибка обновления слота' };
-  }
-
-  return { success: true, slot, client: clientData };
+  return { success: true, slot, client };
 }
 
 // Save diary entry
 async function saveDiaryEntry(clientId, text) {
-  const { error } = await supabase
-    .from('diary_entries')
-    .insert({
-      client_id: clientId,
-      text,
-    });
-
-  return !error;
+  try {
+    await db.createDiaryEntry(clientId, text);
+    return true;
+  } catch (error) {
+    console.error('Error saving diary entry:', error);
+    return false;
+  }
 }
 
 // Get diary entries
 async function getDiaryEntries(clientId) {
-  const { data, error } = await supabase
-    .from('diary_entries')
-    .select('*')
-    .eq('client_id', clientId)
-    .order('created_at', { ascending: false })
-    .limit(5);
-
-  if (error) {
-    console.error('Error fetching diary entries:', error);
-    return [];
-  }
-
-  return data || [];
+  return await db.getDiaryEntries(clientId, 5);
 }
 
 // Create SOS request and notify admin
 async function createSosRequest(clientId, client, text) {
-  const { error } = await supabase
-    .from('sos_requests')
-    .insert({
-      client_id: clientId,
-      text,
-      status: 'new',
-    });
-
-  if (error) {
-    console.error('Error creating SOS request:', error);
-    return false;
-  }
-
-  // Notify admin about SOS
-  const name = client.first_name || 'Пользователь';
-  const username = client.username ? `@${client.username}` : 'нет username';
-  
-  const adminMessage = `⚠️ <b>SOS-сигнал</b>
+  try {
+    await db.createSosRequest(clientId, text || '');
+    
+    // Notify admin about SOS
+    const name = client.first_name || 'Пользователь';
+    const username = client.username ? `@${client.username}` : 'нет username';
+    
+    const adminMessage = `⚠️ <b>SOS-сигнал</b>
 
 Пользователь нажал кнопку SOS.
 
@@ -421,28 +280,23 @@ async function createSosRequest(clientId, client, text) {
 
 Вы можете ответить пользователю напрямую в Telegram.`;
 
-  await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
-
-  return true;
+    await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
+    return true;
+  } catch (error) {
+    console.error('Error creating SOS request:', error);
+    return false;
+  }
 }
 
 // Get current state
 async function getState(chatId) {
-  const { data } = await supabase
-    .from('bot_settings')
-    .select('value')
-    .eq('key', `state_${chatId}`)
-    .maybeSingle();
-
-  return data?.value || null;
+  const setting = await db.getSetting(`state_${chatId}`);
+  return setting ? (typeof setting.value === 'string' ? JSON.parse(setting.value) : setting.value) : null;
 }
 
 // Clear state
 async function clearState(chatId) {
-  await supabase
-    .from('bot_settings')
-    .delete()
-    .eq('key', `state_${chatId}`);
+  await db.query('DELETE FROM bot_settings WHERE key = $1', [`state_${chatId}`]);
 }
 
 // Get file URL from Telegram
@@ -461,112 +315,7 @@ async function getFileUrl(fileId) {
   return null;
 }
 
-// Save payment screenshot
-async function savePaymentScreenshot(clientId, fileUrl) {
-  console.log('=== savePaymentScreenshot CALLED ===');
-  console.log('clientId:', clientId);
-  console.log('fileUrl:', fileUrl);
-  try {
-    console.log('Starting bucket check...');
-    // First, check if bucket exists and get its details
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-    console.log('Bucket check completed, listError:', listError);
-    
-    if (listError) {
-      console.error('Error listing buckets:', listError);
-      return false;
-    }
-    
-    const paymentsBucket = buckets?.find(b => b.id === 'payments');
-    if (!paymentsBucket) {
-      console.error('Bucket "payments" not found. Available buckets:', buckets?.map(b => b.id));
-      return false;
-    }
-    
-    console.log('Bucket "payments" found:', paymentsBucket);
-    console.log('Bucket is public:', paymentsBucket.public);
-    
-    // Download file from Telegram
-    console.log('Downloading file from Telegram:', fileUrl);
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      console.error('Failed to download file from Telegram:', response.status, response.statusText);
-      return false;
-    }
-    
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    console.log('File downloaded, size:', buffer.length, 'bytes');
-    
-    // Generate unique filename
-    const filename = `${clientId}/${Date.now()}.jpg`;
-    console.log('Uploading file to storage:', filename);
-    
-    // Use direct REST API call to Storage API
-    const storageUrl = `${SUPABASE_URL}/storage/v1/object/payments/${filename}`;
-    console.log('Storage URL:', storageUrl);
-    
-    // Upload using direct fetch to Storage API
-    const uploadResponse = await fetch(storageUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        'Content-Type': 'image/jpeg',
-        'x-upsert': 'false',
-        'apikey': SUPABASE_SERVICE_ROLE_KEY
-      },
-      body: buffer
-    });
-    
-    console.log('Upload response status:', uploadResponse.status);
-    console.log('Upload response headers:', Object.fromEntries(uploadResponse.headers.entries()));
-    
-    if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text();
-      console.error('Upload failed:', uploadResponse.status, uploadResponse.statusText);
-      console.error('Error response:', errorText);
-      
-      // Try to parse error
-      try {
-        const errorJson = JSON.parse(errorText);
-        console.error('Error JSON:', JSON.stringify(errorJson, null, 2));
-      } catch (e) {
-        console.error('Could not parse error as JSON');
-      }
-      
-      return false;
-    }
-    
-    const uploadResult = await uploadResponse.json();
-    console.log('File uploaded successfully:', uploadResult);
-    
-    // Get public URL
-    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/payments/${filename}`;
-    console.log('Public URL:', publicUrl);
-    
-    // Save to payments table
-    const { error: dbError } = await supabase
-      .from('payments')
-      .insert({
-        client_id: clientId,
-        screenshot_url: publicUrl,
-      });
-    
-    if (dbError) {
-      console.error('Error saving payment record:', dbError);
-      return false;
-    }
-    
-    console.log('Payment record saved successfully');
-    return true;
-  } catch (error) {
-    console.error('Error processing payment screenshot:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    return false;
-  }
-}
+// Save payment screenshot (using local storage) - function name conflicts, using storage module directly
 
 // Handle booking flow - step 1: select day
 async function handleBookSession(chatId, telegramId) {
@@ -625,13 +374,7 @@ async function handleSelectTime(chatId, date) {
 
 // Handle format selection - step 3: select format based on available_formats
 async function handleSelectFormat(chatId, slotId) {
-  // Fetch slot to get available_formats
-  const { data: slot } = await supabase
-    .from('slots')
-    .select('available_formats')
-    .eq('id', slotId)
-    .maybeSingle();
-
+  const slot = await db.getSlotById(slotId);
   const availableFormats = slot?.available_formats || 'both';
   
   const buttons = [];
@@ -746,24 +489,16 @@ async function handleDiaryAdd(chatId, clientId) {
   );
 
   // Set state for waiting diary entry
-  await supabase
-    .from('bot_settings')
-    .upsert({
-      key: `state_${chatId}`,
-      value: { state: 'waiting_diary' },
-    }, { onConflict: 'key' });
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_diary' });
 }
 
 // Handle payment
 async function handlePayment(chatId, clientId) {
   // Get card number from settings
-  const { data: cardSetting } = await supabase
-    .from('bot_settings')
-    .select('value')
-    .eq('key', 'payment_card')
-    .maybeSingle();
-  
-  const cardNumber = cardSetting?.value?.card_number || '5208130004581850';
+  const cardSetting = await db.getSetting('payment_card');
+  const cardNumber = (cardSetting && typeof cardSetting.value === 'string' 
+    ? JSON.parse(cardSetting.value) 
+    : cardSetting?.value)?.card_number || '5208130004581850';
   
   // Send card number
   await sendMessage(chatId, `<code>${cardNumber}</code>`);
@@ -776,12 +511,7 @@ async function handlePayment(chatId, clientId) {
   );
   
   // Set state for waiting payment screenshot
-  await supabase
-    .from('bot_settings')
-    .upsert({
-      key: `state_${chatId}`,
-      value: { state: 'waiting_payment', client_id: clientId },
-    }, { onConflict: 'key' });
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_payment', client_id: clientId });
 }
 
 // Handle SOS
@@ -797,12 +527,7 @@ async function handleSos(chatId, client) {
   );
 
   // Set state for waiting SOS description
-  await supabase
-    .from('bot_settings')
-    .upsert({
-      key: `state_${chatId}`,
-      value: { state: 'waiting_sos', client_id: client.id },
-    }, { onConflict: 'key' });
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_sos', client_id: client.id });
 }
 
 // Handle free slots view
@@ -851,18 +576,11 @@ async function handleBroadcast(chatId) {
     { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'main_menu' }]] }
   );
 
-  await supabase
-    .from('bot_settings')
-    .upsert({
-      key: `state_${chatId}`,
-      value: { state: 'waiting_broadcast' },
-    }, { onConflict: 'key' });
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_broadcast' });
 }
 
 async function sendBroadcast(text) {
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('telegram_id');
+  const clients = await db.getAllClientsForBroadcast();
 
   if (!clients || clients.length === 0) {
     return 0;
@@ -923,19 +641,18 @@ async function handleTextMessage(message, client) {
 
   if (state?.state === 'waiting_sos') {
     // Update the last SOS request with text
-    const { data: sosRequests } = await supabase
-      .from('sos_requests')
-      .select('id')
-      .eq('client_id', client.id)
-      .eq('status', 'new')
-      .order('created_at', { ascending: false })
-      .limit(1);
+    const sosRequests = await db.query(
+      `SELECT id FROM sos_requests 
+       WHERE client_id = $1 AND status = 'new' 
+       ORDER BY created_at DESC LIMIT 1`,
+      [client.id]
+    );
 
-    if (sosRequests && sosRequests.length > 0) {
-      await supabase
-        .from('sos_requests')
-        .update({ text })
-        .eq('id', sosRequests[0].id);
+    if (sosRequests.rows.length > 0) {
+      await db.query(
+        'UPDATE sos_requests SET text = $1 WHERE id = $2',
+        [text, sosRequests.rows[0].id]
+      );
     }
 
     await clearState(chatId);
@@ -1207,23 +924,18 @@ app.post('/book-for-client', async (req, res) => {
     }
 
     // Get client info
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', clientId)
-      .single();
+    const client = await db.getClientById(clientId);
 
-    if (clientError || !client) {
+    if (!client) {
       return res.status(404).json({ error: 'Client not found' });
     }
 
     // Check if slot exists for this date and time
-    const { data: existingSlot } = await supabase
-      .from('slots')
-      .select('*')
-      .eq('date', date)
-      .eq('time', time)
-      .maybeSingle();
+    const existingSlotResult = await db.query(
+      'SELECT * FROM slots WHERE date = $1 AND time = $2',
+      [date, time]
+    );
+    const existingSlot = existingSlotResult.rows[0];
 
     let slotId;
 
@@ -1235,45 +947,16 @@ app.post('/book-for-client', async (req, res) => {
       slotId = existingSlot.id;
     } else {
       // Create a new slot
-      const { data: newSlot, error: slotError } = await supabase
-        .from('slots')
-        .insert({
-          date,
-          time,
-          status: 'free',
-          available_formats: 'both'
-        })
-        .select()
-        .single();
-
-      if (slotError || !newSlot) {
+      const newSlot = await db.createSlot(date, time, 'both');
+      if (!newSlot) {
         return res.status(500).json({ error: 'Failed to create slot' });
       }
       slotId = newSlot.id;
     }
 
     // Book the slot
-    const { error: updateError } = await supabase
-      .from('slots')
-      .update({ status: 'booked', client_id: clientId, format })
-      .eq('id', slotId);
-
-    if (updateError) {
-      return res.status(500).json({ error: 'Failed to book slot' });
-    }
-
-    // Create booking record
-    const { error: bookingError } = await supabase
-      .from('bookings')
-      .insert({
-        client_id: clientId,
-        slot_id: slotId,
-        status: 'active',
-      });
-
-    if (bookingError) {
-      return res.status(500).json({ error: 'Failed to create booking' });
-    }
+    await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
+    await db.createBooking(clientId, slotId);
 
     // Send notification to client
     const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
@@ -1293,30 +976,246 @@ ${formatText}
   }
 });
 
-// Check storage bucket on startup
-async function checkStorageBucket() {
+// Endpoint for canceling booking from admin panel
+app.post('/cancel-booking-admin', async (req, res) => {
   try {
-    const { data: buckets, error } = await supabase.storage.listBuckets();
-    if (error) {
-      console.error('❌ Error listing buckets:', error);
-      return;
-    }
-    
-    console.log('📦 Available buckets:', buckets?.map(b => b.id) || 'none');
-    
-    const paymentsBucket = buckets?.find(b => b.id === 'payments');
-    if (paymentsBucket) {
-      console.log('✅ Bucket "payments" found and ready');
-    } else {
-      console.error('❌ Bucket "payments" NOT FOUND! Please create it in Supabase Dashboard.');
-    }
-  } catch (error) {
-    console.error('❌ Error checking storage bucket:', error);
-  }
-}
+    const { slotId } = req.body;
 
+    if (!slotId) {
+      return res.status(400).json({ error: 'slotId is required' });
+    }
+
+    console.log('Canceling booking for slot:', slotId);
+
+    // Get slot with client info
+    const slot = await db.getSlotWithClient(slotId);
+
+    if (!slot) {
+      return res.status(404).json({ error: 'Slot not found' });
+    }
+
+    const client = slot.telegram_id ? {
+      telegram_id: slot.telegram_id,
+      first_name: slot.first_name
+    } : null;
+
+    // Cancel the booking (update status to 'canceled')
+    await db.cancelBookingBySlotId(slotId);
+
+    // Free the slot
+    await db.updateSlot(slotId, { status: 'free', client_id: null, format: null });
+
+    // Send notification to client
+    if (client?.telegram_id) {
+      const name = client.first_name || 'Уважаемый клиент';
+      const message = `❌ <b>Запись отменена</b>
+
+${name}, к сожалению, ваша консультация на ${formatDate(slot.date)} в ${formatTime(slot.time)} была отменена.
+
+Пожалуйста, выберите другое удобное время для записи.`;
+
+      await sendMessage(client.telegram_id, message, null, false);
+      console.log('Notification sent to client:', client.telegram_id);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in cancel-booking-admin:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== REST API ENDPOINTS FOR ADMIN PANEL ====================
+
+// GET /api/clients - Get all clients
+app.get('/api/clients', async (req, res) => {
+  try {
+    const clients = await db.getAllClients();
+    res.json(clients);
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/clients/:id - Update client
+app.put('/api/clients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { first_name, last_name } = req.body;
+    
+    await db.query(
+      'UPDATE clients SET first_name = $1, last_name = $2 WHERE id = $3',
+      [first_name || null, last_name || null, id]
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/clients/:id - Delete client
+app.delete('/api/clients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteClient(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/slots - Get all slots (with cutoff date)
+app.get('/api/slots', async (req, res) => {
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 2);
+    const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+    
+    const slots = await db.getSlots(cutoffDateStr);
+    res.json(slots);
+  } catch (error) {
+    console.error('Error fetching slots:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/slots - Create slot
+app.post('/api/slots', async (req, res) => {
+  try {
+    const { date, time, available_formats } = req.body;
+    
+    if (!date || !time) {
+      return res.status(400).json({ error: 'date and time are required' });
+    }
+    
+    const slot = await db.createSlot(date, time, available_formats || 'both');
+    res.json(slot);
+  } catch (error) {
+    console.error('Error creating slot:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/slots/:id - Delete slot
+app.delete('/api/slots/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteSlot(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting slot:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/sos - Get all SOS requests
+app.get('/api/sos', async (req, res) => {
+  try {
+    const requests = await db.getSosRequests();
+    res.json(requests);
+  } catch (error) {
+    console.error('Error fetching SOS requests:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/sos/:id - Mark SOS request as viewed
+app.put('/api/sos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.updateSosRequestStatus(id, 'viewed');
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating SOS request:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/payments - Get all payments
+app.get('/api/payments', async (req, res) => {
+  try {
+    const payments = await db.getPayments();
+    res.json(payments);
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/payments/:id - Delete payment
+app.delete('/api/payments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get payment to delete file
+    const payments = await db.getPayments();
+    const payment = payments.find(p => p.id === id);
+    
+    if (payment) {
+      const { deletePaymentFile } = require('./storage');
+      await deletePaymentFile(payment.screenshot_url);
+    }
+    
+    await db.deletePayment(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting payment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/payment-card - Get payment card number
+app.get('/api/payment-card', async (req, res) => {
+  try {
+    const setting = await db.getSetting('payment_card');
+    const cardNumber = setting && typeof setting.value === 'string' 
+      ? JSON.parse(setting.value) 
+      : setting?.value;
+    res.json(cardNumber || { card_number: '5208130004581850' });
+  } catch (error) {
+    console.error('Error fetching payment card:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/payment-card - Save payment card number
+app.put('/api/payment-card', async (req, res) => {
+  try {
+    const { card_number } = req.body;
+    await db.setSetting('payment_card', { card_number });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving payment card:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/diary - Get all diary entries
+app.get('/api/diary', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT d.*, 
+       c.first_name, c.last_name, c.username
+     FROM diary_entries d
+     JOIN clients c ON d.client_id = c.id
+     ORDER BY d.created_at DESC
+     LIMIT 50`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching diary entries:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Initialize storage on startup
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Bot server running on port ${PORT}`);
-  await checkStorageBucket();
+  await initStorage();
+  console.log('✓ Storage initialized');
 });

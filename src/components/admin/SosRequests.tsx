@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,31 +29,23 @@ const SosRequests = () => {
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ["sos_requests"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sos_requests")
-        .select(`
-          *,
-          clients (
-            first_name,
-            last_name,
-            username,
-            telegram_id
-          )
-        `)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data as SosRequest[];
+      const data = await api.getSosRequests();
+      // Transform data to match expected format
+      return data.map((req: any) => ({
+        ...req,
+        clients: req.first_name || req.last_name || req.username ? {
+          first_name: req.first_name,
+          last_name: req.last_name,
+          username: req.username,
+          telegram_id: req.telegram_id,
+        } : null,
+      })) as SosRequest[];
     },
   });
 
   const markAsViewedMutation = useMutation({
     mutationFn: async (requestId: string) => {
-      const { error } = await supabase
-        .from("sos_requests")
-        .update({ status: "viewed" })
-        .eq("id", requestId);
-      if (error) throw error;
+      await api.markSosAsViewed(requestId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sos_requests"] });
