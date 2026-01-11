@@ -197,7 +197,7 @@ async function bookSlot(clientId, slotId, format = 'offline') {
     console.log('✅ Slot found:', slot);
     await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
     console.log('✅ Slot updated');
-    
+
     const booking = await db.createBooking(clientId, slotId);
     console.log('✅ Booking created:', booking);
 
@@ -798,7 +798,7 @@ async function handleCallbackQuery(callbackQuery, client) {
     const isOnline = data.startsWith('book_online_');
     const slotId = data.replace('book_offline_', '').replace('book_online_', '');
     const format = isOnline ? 'online' : 'offline';
-    
+
     console.log('📅 Booking request:', { slotId, format, clientId: client.id, callbackData: data });
 
     const success = await bookSlot(client.id, slotId, format);
@@ -919,6 +919,12 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (update.callback_query) {
+      console.log('🔔 Callback query received:', {
+        id: update.callback_query.id,
+        data: update.callback_query.data,
+        from: update.callback_query.from?.id,
+        message: update.callback_query.message?.chat?.id
+      });
       const client = await getOrCreateClient(update.callback_query.from);
       await handleCallbackQuery(update.callback_query, client);
     }
