@@ -1250,6 +1250,19 @@ app.post('/api/slots', async (req, res) => {
     }
 
     const slot = await db.createSlot(date, time, available_formats || 'both');
+    
+    // If slot already exists (ON CONFLICT DO NOTHING returns null), return existing slot
+    if (!slot) {
+      const existingSlot = await db.query(
+        'SELECT * FROM slots WHERE date = $1 AND time = $2',
+        [date, time]
+      );
+      if (existingSlot.rows[0]) {
+        return res.json(existingSlot.rows[0]);
+      }
+      return res.status(409).json({ error: 'Slot already exists for this date and time' });
+    }
+    
     res.json(slot);
   } catch (error) {
     console.error('Error creating slot:', error);
