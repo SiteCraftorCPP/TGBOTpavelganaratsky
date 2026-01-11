@@ -151,7 +151,14 @@ async function getAvailableSlots() {
 // Get unique dates from available slots
 async function getAvailableDates() {
   const slots = await getAvailableSlots();
-  const uniqueDates = [...new Set(slots.map(slot => slot.date))];
+  const uniqueDates = [...new Set(slots.map(slot => {
+    // Ensure date is in YYYY-MM-DD format (string)
+    const date = slot.date;
+    if (date instanceof Date) {
+      return date.toISOString().split('T')[0];
+    }
+    return typeof date === 'string' ? date.split('T')[0] : date;
+  }))];
   return uniqueDates;
 }
 
@@ -369,334 +376,334 @@ async function handleBookSession(chatId, telegramId) {
 
 // Handle booking flow - step 2: select time for selected date
 async function handleSelectTime(chatId, date) {
-    const slots = await getSlotsForDate(date);
+  const slots = await getSlotsForDate(date);
 
-    if (slots.length === 0) {
+  if (slots.length === 0) {
+    await sendMessage(
+      chatId,
+      '😔 К сожалению, на этот день свободных слотов нет.\n\nВыберите другой день.',
+      { inline_keyboard: [[{ text: '◀️ Выбрать другой день', callback_data: 'book_session' }]] }
+    );
+    return;
+  }
+
+  const keyboard = slots.map((slot) => {
+    const formatIcon = slot.available_formats === 'both' ? '🏠💻' : slot.available_formats === 'offline' ? '🏠' : '💻';
+    return [{
+      text: `${formatTime(slot.time)} ${formatIcon}`,
+      callback_data: `select_slot_${slot.id}`,
+    }];
+  });
+  keyboard.push([{ text: '◀️ Выбрать другой день', callback_data: 'book_session' }]);
+
+  await sendMessage(
+    chatId,
+    `🕐 <b>${formatDate(date)}</b>\n\nВыберите время:\n\n🏠 — очно, 💻 — онлайн`,
+    { inline_keyboard: keyboard }
+  );
+}
+
+// Handle format selection - step 3: select format based on available_formats
+async function handleSelectFormat(chatId, slotId) {
+  const slot = await db.getSlotById(slotId);
+  const availableFormats = slot?.available_formats || 'both';
+
+  const buttons = [];
+
+  if (availableFormats === 'offline' || availableFormats === 'both') {
+    buttons.push([{ text: '🏠 Очно', callback_data: `book_offline_${slotId}` }]);
+  }
+
+  if (availableFormats === 'online' || availableFormats === 'both') {
+    buttons.push([{ text: '💻 Онлайн', callback_data: `book_online_${slotId}` }]);
+  }
+
+  buttons.push([{ text: '◀️ Назад', callback_data: 'book_session' }]);
+
+  await sendMessage(
+    chatId,
+    '📍 <b>Выберите формат консультации:</b>',
+    { inline_keyboard: buttons }
+  );
+}
+
+// Handle my bookings - only upcoming
+async function handleMyBookings(chatId, clientId, telegramId) {
+  try {
+    console.log('📅 handleMyBookings: getting bookings for clientId:', clientId);
+    const bookings = await getClientBookings(clientId);
+    console.log('📅 Client bookings:', bookings.length);
+
+    if (bookings.length === 0) {
+      console.log('📅 No bookings, sending empty message');
       await sendMessage(
         chatId,
-        '😔 К сожалению, на этот день свободных слотов нет.\n\nВыберите другой день.',
-        { inline_keyboard: [[{ text: '◀️ Выбрать другой день', callback_data: 'book_session' }]] }
+        '🗓 <b>Моя запись</b>\n\nУ вас нет предстоящих записей.\n\nХотите записаться на консультацию?',
+        {
+          inline_keyboard: [
+            [{ text: '📅 Записаться', callback_data: 'book_session' }],
+            [{ text: '◀️ Назад', callback_data: 'main_menu' }],
+          ]
+        }
       );
+      console.log('✅ Empty bookings message sent');
       return;
     }
 
-    const keyboard = slots.map((slot) => {
-      const formatIcon = slot.available_formats === 'both' ? '🏠💻' : slot.available_formats === 'offline' ? '🏠' : '💻';
-      return [{
-        text: `${formatTime(slot.time)} ${formatIcon}`,
-        callback_data: `select_slot_${slot.id}`,
-      }];
-    });
-    keyboard.push([{ text: '◀️ Выбрать другой день', callback_data: 'book_session' }]);
+    let text = '🗓 <b>Предстоящие записи:</b>\n\n';
+    const keyboard = [];
 
-    await sendMessage(
-      chatId,
-      `🕐 <b>${formatDate(date)}</b>\n\nВыберите время:\n\n🏠 — очно, 💻 — онлайн`,
-      { inline_keyboard: keyboard }
-    );
-  }
-
-  // Handle format selection - step 3: select format based on available_formats
-  async function handleSelectFormat(chatId, slotId) {
-    const slot = await db.getSlotById(slotId);
-    const availableFormats = slot?.available_formats || 'both';
-
-    const buttons = [];
-
-    if (availableFormats === 'offline' || availableFormats === 'both') {
-      buttons.push([{ text: '🏠 Очно', callback_data: `book_offline_${slotId}` }]);
-    }
-
-    if (availableFormats === 'online' || availableFormats === 'both') {
-      buttons.push([{ text: '💻 Онлайн', callback_data: `book_online_${slotId}` }]);
-    }
-
-    buttons.push([{ text: '◀️ Назад', callback_data: 'book_session' }]);
-
-    await sendMessage(
-      chatId,
-      '📍 <b>Выберите формат консультации:</b>',
-      { inline_keyboard: buttons }
-    );
-  }
-
-  // Handle my bookings - only upcoming
-  async function handleMyBookings(chatId, clientId, telegramId) {
-    try {
-      console.log('📅 handleMyBookings: getting bookings for clientId:', clientId);
-      const bookings = await getClientBookings(clientId);
-      console.log('📅 Client bookings:', bookings.length);
-
-      if (bookings.length === 0) {
-        console.log('📅 No bookings, sending empty message');
-        await sendMessage(
-          chatId,
-          '🗓 <b>Моя запись</b>\n\nУ вас нет предстоящих записей.\n\nХотите записаться на консультацию?',
-          {
-            inline_keyboard: [
-              [{ text: '📅 Записаться', callback_data: 'book_session' }],
-              [{ text: '◀️ Назад', callback_data: 'main_menu' }],
-            ]
-          }
-        );
-        console.log('✅ Empty bookings message sent');
-        return;
+    for (const booking of bookings) {
+      const slot = booking.slots;
+      if (slot) {
+        const formatIcon = slot.format === 'online' ? '💻' : '🏠';
+        text += `📌 ${formatDate(slot.date)} в ${formatTime(slot.time)} ${formatIcon}\n`;
+        keyboard.push([{
+          text: `❌ Отменить ${formatDate(slot.date)} ${formatTime(slot.time)}`,
+          callback_data: `cancel_${booking.id}`,
+        }]);
       }
-
-      let text = '🗓 <b>Предстоящие записи:</b>\n\n';
-      const keyboard = [];
-
-      for (const booking of bookings) {
-        const slot = booking.slots;
-        if (slot) {
-          const formatIcon = slot.format === 'online' ? '💻' : '🏠';
-          text += `📌 ${formatDate(slot.date)} в ${formatTime(slot.time)} ${formatIcon}\n`;
-          keyboard.push([{
-            text: `❌ Отменить ${formatDate(slot.date)} ${formatTime(slot.time)}`,
-            callback_data: `cancel_${booking.id}`,
-          }]);
-        }
-      }
-
-      text += '\n<i>Отменить запись можно не позднее чем за 24 часа до начала.</i>';
-
-      keyboard.push([{ text: '◀️ Назад', callback_data: 'main_menu' }]);
-
-      console.log('📅 Sending bookings list');
-      await sendMessage(chatId, text, { inline_keyboard: keyboard });
-      console.log('✅ Bookings list sent');
-    } catch (error) {
-      console.error('❌ Error in handleMyBookings:', error);
-      throw error;
     }
+
+    text += '\n<i>Отменить запись можно не позднее чем за 24 часа до начала.</i>';
+
+    keyboard.push([{ text: '◀️ Назад', callback_data: 'main_menu' }]);
+
+    console.log('📅 Sending bookings list');
+    await sendMessage(chatId, text, { inline_keyboard: keyboard });
+    console.log('✅ Bookings list sent');
+  } catch (error) {
+    console.error('❌ Error in handleMyBookings:', error);
+    throw error;
+  }
 }
 
 // Handle diary with buttons
 async function handleDiary(chatId, clientId, telegramId) {
-      await sendMessage(
-        chatId,
-        `📒 <b>Дневник терапии</b>\n\nЗдесь вы можете записывать свои мысли, переживания или то, что вас беспокоит. Это останется между нами.`,
-        {
-          inline_keyboard: [
-            [{ text: '➕ Добавить запись', callback_data: 'diary_add' }],
-            [{ text: '📖 Посмотреть записи', callback_data: 'diary_view' }],
-            [{ text: '◀️ Назад', callback_data: 'main_menu' }]
-          ]
-        }
-      );
+  await sendMessage(
+    chatId,
+    `📒 <b>Дневник терапии</b>\n\nЗдесь вы можете записывать свои мысли, переживания или то, что вас беспокоит. Это останется между нами.`,
+    {
+      inline_keyboard: [
+        [{ text: '➕ Добавить запись', callback_data: 'diary_add' }],
+        [{ text: '📖 Посмотреть записи', callback_data: 'diary_view' }],
+        [{ text: '◀️ Назад', callback_data: 'main_menu' }]
+      ]
     }
+  );
+}
 
-    // Handle view diary entries
-    async function handleDiaryView(chatId, clientId, telegramId) {
-      const entries = await getDiaryEntries(clientId);
+// Handle view diary entries
+async function handleDiaryView(chatId, clientId, telegramId) {
+  const entries = await getDiaryEntries(clientId);
 
-      let text = `📖 <b>Ваши записи:</b>\n\n`;
+  let text = `📖 <b>Ваши записи:</b>\n\n`;
 
-      if (entries.length === 0) {
-        text = `📖 <b>Ваши записи:</b>\n\nУ вас пока нет записей в дневнике.`;
-      } else {
-        for (const entry of entries) {
-          const date = new Date(entry.created_at);
-          const dateStr = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
-          const preview = entry.text.length > 100 ? entry.text.slice(0, 100) + '...' : entry.text;
-          text += `📝 <b>${dateStr}:</b>\n${preview}\n\n`;
-        }
-      }
-
-      await sendMessage(
-        chatId,
-        text,
-        {
-          inline_keyboard: [
-            [{ text: '➕ Добавить запись', callback_data: 'diary_add' }],
-            [{ text: '◀️ Назад в дневник', callback_data: 'diary' }]
-          ]
-        }
-      );
+  if (entries.length === 0) {
+    text = `📖 <b>Ваши записи:</b>\n\nУ вас пока нет записей в дневнике.`;
+  } else {
+    for (const entry of entries) {
+      const date = new Date(entry.created_at);
+      const dateStr = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+      const preview = entry.text.length > 100 ? entry.text.slice(0, 100) + '...' : entry.text;
+      text += `📝 <b>${dateStr}:</b>\n${preview}\n\n`;
     }
+  }
 
-    // Handle add diary entry
-    async function handleDiaryAdd(chatId, clientId) {
-      await sendMessage(
-        chatId,
-        `📝 <b>Новая запись</b>\n\nНапишите свои мысли, переживания или то, что вас беспокоит.\n\n<i>Отправьте текст в следующем сообщении.</i>`,
-        { inline_keyboard: [[{ text: '◀️ Отмена', callback_data: 'diary' }]] }
-      );
-
-      // Set state for waiting diary entry
-      await db.setSetting(`state_${chatId}`, { state: 'waiting_diary' });
+  await sendMessage(
+    chatId,
+    text,
+    {
+      inline_keyboard: [
+        [{ text: '➕ Добавить запись', callback_data: 'diary_add' }],
+        [{ text: '◀️ Назад в дневник', callback_data: 'diary' }]
+      ]
     }
+  );
+}
 
-    // Handle payment
-    async function handlePayment(chatId, clientId) {
-      // Get card number from settings
-      const cardSetting = await db.getSetting('payment_card');
-      const cardNumber = (cardSetting && typeof cardSetting.value === 'string'
-        ? JSON.parse(cardSetting.value)
-        : cardSetting?.value)?.card_number || '5208130004581850';
+// Handle add diary entry
+async function handleDiaryAdd(chatId, clientId) {
+  await sendMessage(
+    chatId,
+    `📝 <b>Новая запись</b>\n\nНапишите свои мысли, переживания или то, что вас беспокоит.\n\n<i>Отправьте текст в следующем сообщении.</i>`,
+    { inline_keyboard: [[{ text: '◀️ Отмена', callback_data: 'diary' }]] }
+  );
 
-      // Send card number
-      await sendMessage(chatId, `<code>${cardNumber}</code>`);
+  // Set state for waiting diary entry
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_diary' });
+}
 
-      // Send instructions
-      await sendMessage(
-        chatId,
-        `Это номер карты, его можно удобно скопировать. Пришлите в этот диалог скриншот об оплате`,
-        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
-      );
+// Handle payment
+async function handlePayment(chatId, clientId) {
+  // Get card number from settings
+  const cardSetting = await db.getSetting('payment_card');
+  const cardNumber = (cardSetting && typeof cardSetting.value === 'string'
+    ? JSON.parse(cardSetting.value)
+    : cardSetting?.value)?.card_number || '5208130004581850';
 
-      // Set state for waiting payment screenshot
-      await db.setSetting(`state_${chatId}`, { state: 'waiting_payment', client_id: clientId });
-    }
+  // Send card number
+  await sendMessage(chatId, `<code>${cardNumber}</code>`);
 
-    // Handle SOS
-    async function handleSos(chatId, client) {
-      await createSosRequest(client.id, client);
+  // Send instructions
+  await sendMessage(
+    chatId,
+    `Это номер карты, его можно удобно скопировать. Пришлите в этот диалог скриншот об оплате`,
+    { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+  );
 
-      await sendMessage(
-        chatId,
-        `🆘 <b>SOS-связь с психологом.</b>
+  // Set state for waiting payment screenshot
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_payment', client_id: clientId });
+}
+
+// Handle SOS
+async function handleSos(chatId, client) {
+  await createSosRequest(client.id, client);
+
+  await sendMessage(
+    chatId,
+    `🆘 <b>SOS-связь с психологом.</b>
 
 Я передал ваше обращение!`,
-        { inline_keyboard: [[{ text: '◀️ В главное меню', callback_data: 'main_menu' }]] }
-      );
+    { inline_keyboard: [[{ text: '◀️ В главное меню', callback_data: 'main_menu' }]] }
+  );
 
-      // Set state for waiting SOS description
-      await db.setSetting(`state_${chatId}`, { state: 'waiting_sos', client_id: client.id });
+  // Set state for waiting SOS description
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_sos', client_id: client.id });
+}
+
+// Handle free slots view
+async function handleFreeSlots(chatId, telegramId) {
+  const slots = await getAvailableSlots();
+
+  if (slots.length === 0) {
+    await sendMessage(
+      chatId,
+      '😔 К сожалению, свободных дат нет.\n\nПопробуйте позже.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    );
+    return;
+  }
+
+  let text = '📁 <b>Свободные даты:</b>\n\n';
+  for (const slot of slots) {
+    text += `• ${formatDate(slot.date)} в ${formatTime(slot.time)}\n`;
+  }
+
+  text += '\nДля записи нажмите "Записаться на консультацию"';
+
+  await sendMessage(
+    chatId,
+    text,
+    {
+      inline_keyboard: [
+        [{ text: '📅 Записаться', callback_data: 'book_session' }],
+        [{ text: '◀️ Назад', callback_data: 'main_menu' }]
+      ]
     }
+  );
+}
 
-    // Handle free slots view
-    async function handleFreeSlots(chatId, telegramId) {
-      const slots = await getAvailableSlots();
+// Handle main menu
+async function handleMainMenu(chatId, telegramId) {
+  const text = `Вы в главном меню:`;
+  await sendMessage(chatId, text, getMainMenuKeyboard(telegramId));
+}
 
-      if (slots.length === 0) {
-        await sendMessage(
-          chatId,
-          '😔 К сожалению, свободных дат нет.\n\nПопробуйте позже.',
-          { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
-        );
-        return;
-      }
+// Handle broadcast admin function
+async function handleBroadcast(chatId) {
+  await sendMessage(
+    chatId,
+    '📢 <b>Рассылка</b>\n\nОтправьте сообщение, которое хотите разослать всем клиентам.\n\n<i>Для отмены отправьте /cancel</i>',
+    { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'main_menu' }]] }
+  );
 
-      let text = '📁 <b>Свободные даты:</b>\n\n';
-      for (const slot of slots) {
-        text += `• ${formatDate(slot.date)} в ${formatTime(slot.time)}\n`;
-      }
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_broadcast' });
+}
 
-      text += '\nДля записи нажмите "Записаться на консультацию"';
+async function sendBroadcast(text) {
+  const clients = await db.getAllClientsForBroadcast();
 
-      await sendMessage(
-        chatId,
-        text,
-        {
-          inline_keyboard: [
-            [{ text: '📅 Записаться', callback_data: 'book_session' }],
-            [{ text: '◀️ Назад', callback_data: 'main_menu' }]
-          ]
-        }
-      );
+  if (!clients || clients.length === 0) {
+    return 0;
+  }
+
+  let sentCount = 0;
+  for (const client of clients) {
+    try {
+      await sendMessage(client.telegram_id, text, null, false);
+      sentCount++;
+      // Small delay to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (error) {
+      console.error(`Failed to send to ${client.telegram_id}:`, error);
     }
+  }
 
-    // Handle main menu
-    async function handleMainMenu(chatId, telegramId) {
-      const text = `Вы в главном меню:`;
-      await sendMessage(chatId, text, getMainMenuKeyboard(telegramId));
-    }
+  return sentCount;
+}
 
-    // Handle broadcast admin function
-    async function handleBroadcast(chatId) {
-      await sendMessage(
-        chatId,
-        '📢 <b>Рассылка</b>\n\nОтправьте сообщение, которое хотите разослать всем клиентам.\n\n<i>Для отмены отправьте /cancel</i>',
-        { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'main_menu' }]] }
-      );
+// Handle text messages
+async function handleTextMessage(message, client) {
+  const chatId = message.chat.id;
+  const text = message.text || '';
+  const telegramId = message.from.id;
 
-      await db.setSetting(`state_${chatId}`, { state: 'waiting_broadcast' });
-    }
+  // Check for commands
+  if (text === '/start' || text === '/menu' || text === '📋 Меню') {
+    await clearState(chatId);
+    await sendMessage(chatId, 'Вы в главном меню:', getMainMenuKeyboard(telegramId));
+    return;
+  }
 
-    async function sendBroadcast(text) {
-      const clients = await db.getAllClientsForBroadcast();
+  if (text === '/cancel' && isAdmin(telegramId)) {
+    await clearState(chatId);
+    await sendMessage(chatId, 'Отменено', getMainMenuKeyboard(telegramId));
+    return;
+  }
 
-      if (!clients || clients.length === 0) {
-        return 0;
+  // Check current state
+  const state = await getState(chatId);
+
+  if (state?.state === 'waiting_diary') {
+    await saveDiaryEntry(client.id, text);
+    await clearState(chatId);
+    await sendMessage(
+      chatId,
+      '✅ Запись сохранена в дневник.\n\nСпасибо, что делитесь своими мыслями.',
+      {
+        inline_keyboard: [
+          [{ text: '📖 Посмотреть записи', callback_data: 'diary_view' }],
+          [{ text: '◀️ В главное меню', callback_data: 'main_menu' }]
+        ]
       }
+    );
+    return;
+  }
 
-      let sentCount = 0;
-      for (const client of clients) {
-        try {
-          await sendMessage(client.telegram_id, text, null, false);
-          sentCount++;
-          // Small delay to avoid rate limits
-          await new Promise(resolve => setTimeout(resolve, 50));
-        } catch (error) {
-          console.error(`Failed to send to ${client.telegram_id}:`, error);
-        }
-      }
-
-      return sentCount;
-    }
-
-    // Handle text messages
-    async function handleTextMessage(message, client) {
-      const chatId = message.chat.id;
-      const text = message.text || '';
-      const telegramId = message.from.id;
-
-      // Check for commands
-      if (text === '/start' || text === '/menu' || text === '📋 Меню') {
-        await clearState(chatId);
-        await sendMessage(chatId, 'Вы в главном меню:', getMainMenuKeyboard(telegramId));
-        return;
-      }
-
-      if (text === '/cancel' && isAdmin(telegramId)) {
-        await clearState(chatId);
-        await sendMessage(chatId, 'Отменено', getMainMenuKeyboard(telegramId));
-        return;
-      }
-
-      // Check current state
-      const state = await getState(chatId);
-
-      if (state?.state === 'waiting_diary') {
-        await saveDiaryEntry(client.id, text);
-        await clearState(chatId);
-        await sendMessage(
-          chatId,
-          '✅ Запись сохранена в дневник.\n\nСпасибо, что делитесь своими мыслями.',
-          {
-            inline_keyboard: [
-              [{ text: '📖 Посмотреть записи', callback_data: 'diary_view' }],
-              [{ text: '◀️ В главное меню', callback_data: 'main_menu' }]
-            ]
-          }
-        );
-        return;
-      }
-
-      if (state?.state === 'waiting_sos') {
-        // Update the last SOS request with text
-        const sosRequests = await db.query(
-          `SELECT id FROM sos_requests 
+  if (state?.state === 'waiting_sos') {
+    // Update the last SOS request with text
+    const sosRequests = await db.query(
+      `SELECT id FROM sos_requests 
        WHERE client_id = $1 AND status = 'new' 
        ORDER BY created_at DESC LIMIT 1`,
-          [client.id]
-        );
+      [client.id]
+    );
 
-        if (sosRequests.rows.length > 0) {
-          await db.query(
-            'UPDATE sos_requests SET text = $1 WHERE id = $2',
-            [text, sosRequests.rows[0].id]
-          );
-        }
+    if (sosRequests.rows.length > 0) {
+      await db.query(
+        'UPDATE sos_requests SET text = $1 WHERE id = $2',
+        [text, sosRequests.rows[0].id]
+      );
+    }
 
-        await clearState(chatId);
+    await clearState(chatId);
 
-        // Notify admin about the additional message
-        const name = client.first_name || 'Пользователь';
-        const username = client.username ? `@${client.username}` : 'нет username';
+    // Notify admin about the additional message
+    const name = client.first_name || 'Пользователь';
+    const username = client.username ? `@${client.username}` : 'нет username';
 
-        const adminMessage = `📝 <b>Дополнение к SOS</b>
+    const adminMessage = `📝 <b>Дополнение к SOS</b>
 
 От: ${name} (${username})
 🆔 id: ${client.telegram_id}
@@ -704,375 +711,449 @@ async function handleDiary(chatId, clientId, telegramId) {
 Сообщение:
 ${text}`;
 
-        await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
+    await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
 
-        await sendMessage(
-          chatId,
-          '✅ Сообщение отправлено психологу.',
-          getMainMenuKeyboard(telegramId)
-        );
-        return;
-      }
+    await sendMessage(
+      chatId,
+      '✅ Сообщение отправлено психологу.',
+      getMainMenuKeyboard(telegramId)
+    );
+    return;
+  }
 
-      if (state?.state === 'waiting_broadcast' && isAdmin(telegramId)) {
-        await clearState(chatId);
-        await sendMessage(chatId, '⏳ Рассылаю сообщение...', null, false);
+  if (state?.state === 'waiting_broadcast' && isAdmin(telegramId)) {
+    await clearState(chatId);
+    await sendMessage(chatId, '⏳ Рассылаю сообщение...', null, false);
 
-        const sentCount = await sendBroadcast(text);
+    const sentCount = await sendBroadcast(text);
 
-        await sendMessage(
-          chatId,
-          `✅ Рассылка завершена!\n\nОтправлено: ${sentCount} клиентам`,
-          getMainMenuKeyboard(telegramId)
-        );
-        return;
-      }
+    await sendMessage(
+      chatId,
+      `✅ Рассылка завершена!\n\nОтправлено: ${sentCount} клиентам`,
+      getMainMenuKeyboard(telegramId)
+    );
+    return;
+  }
 
-      // Default response
+  // Default response
+  await sendMessage(
+    chatId,
+    'Используйте меню для навигации:',
+    getMainMenuKeyboard(telegramId)
+  );
+}
+
+// Handle callback queries
+async function handleCallbackQuery(callbackQuery, client) {
+  const chatId = callbackQuery.message?.chat.id;
+  const data = callbackQuery.data;
+  const telegramId = callbackQuery.from.id;
+
+  console.log('🔔 handleCallbackQuery:', { chatId, telegramId, data, clientId: client.id });
+
+  if (!chatId || !data) {
+    console.log('❌ Missing chatId or data in callback query');
+    await answerCallbackQuery(callbackQuery.id);
+    return;
+  }
+
+  await clearState(chatId);
+  await answerCallbackQuery(callbackQuery.id);
+
+  if (data === 'main_menu') {
+    await handleMainMenu(chatId, telegramId);
+    return;
+  }
+
+  if (data === 'free_slots') {
+    await handleFreeSlots(chatId, telegramId);
+    return;
+  }
+
+  if (data === 'book_session') {
+    try {
+      console.log('📅 Calling handleBookSession');
+      await handleBookSession(chatId, telegramId);
+      console.log('✅ handleBookSession completed');
+    } catch (error) {
+      console.error('❌ Error in handleBookSession:', error);
+      await sendMessage(chatId, '❌ Произошла ошибка. Попробуйте позже.', getMainMenuKeyboard(telegramId));
+    }
+    return;
+  }
+
+  if (data === 'my_bookings') {
+    try {
+      console.log('📅 Calling handleMyBookings');
+      await handleMyBookings(chatId, client.id, telegramId);
+      console.log('✅ handleMyBookings completed');
+    } catch (error) {
+      console.error('❌ Error in handleMyBookings:', error);
+      await sendMessage(chatId, '❌ Произошла ошибка. Попробуйте позже.', getMainMenuKeyboard(telegramId));
+    }
+    return;
+  }
+
+  if (data === 'diary') {
+    await handleDiary(chatId, client.id, telegramId);
+    return;
+  }
+
+  if (data === 'diary_add') {
+    await handleDiaryAdd(chatId, client.id);
+    return;
+  }
+
+  if (data === 'diary_view') {
+    await handleDiaryView(chatId, client.id, telegramId);
+    return;
+  }
+
+  if (data === 'payment') {
+    await handlePayment(chatId, client.id);
+    return;
+  }
+
+  if (data === 'sos') {
+    await handleSos(chatId, client);
+    return;
+  }
+
+  if (data === 'admin_broadcast' && isAdmin(telegramId)) {
+    await handleBroadcast(chatId);
+    return;
+  }
+
+  // Handle date selection - show times for that date
+  if (data.startsWith('select_date_')) {
+    const selectedDate = data.replace('select_date_', '');
+    await handleSelectTime(chatId, selectedDate);
+    return;
+  }
+
+  // Handle slot selection - show format options
+  if (data.startsWith('select_slot_')) {
+    const slotId = data.replace('select_slot_', '');
+    await handleSelectFormat(chatId, slotId);
+    return;
+  }
+
+  // Handle booking with format
+  if (data.startsWith('book_offline_') || data.startsWith('book_online_')) {
+    const isOnline = data.startsWith('book_online_');
+    const slotId = data.replace('book_offline_', '').replace('book_online_', '');
+    const format = isOnline ? 'online' : 'offline';
+
+    console.log('📅 Booking request:', { slotId, format, clientId: client.id, callbackData: data });
+
+    const success = await bookSlot(client.id, slotId, format);
+
+    if (success) {
+      const formatText = isOnline ? '💻 онлайн' : '🏠 очно';
       await sendMessage(
         chatId,
-        'Используйте меню для навигации:',
+        `✅ <b>Вы успешно записались!</b>\n\nФормат: ${formatText}\n\nНапоминания придут за 24 часа и за 1 час до сессии.`,
+        getMainMenuKeyboard(telegramId)
+      );
+    } else {
+      await sendMessage(
+        chatId,
+        '😔 К сожалению, это время уже занято.\n\nПожалуйста, выберите другой слот.',
+        { inline_keyboard: [[{ text: '📅 Выбрать другое время', callback_data: 'book_session' }]] }
+      );
+    }
+    return;
+  }
+
+  if (data.startsWith('cancel_')) {
+    const bookingId = data.replace('cancel_', '');
+    const result = await cancelBooking(bookingId, false); // false = client cancellation
+
+    if (result.success) {
+      await sendMessage(
+        chatId,
+        '✅ Запись отменена.',
+        getMainMenuKeyboard(telegramId)
+      );
+
+      // Notify admin about client cancellation
+      if (result.slot) {
+        const name = client.first_name || 'Клиент';
+        const username = client.username ? `@${client.username}` : '';
+        await sendMessage(
+          ADMIN_TELEGRAM_IDS[0],
+          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`,
+          null,
+          false
+        );
+      }
+    } else {
+      await sendMessage(
+        chatId,
+        `❌ ${result.error || 'Не удалось отменить запись. Попробуйте позже.'}`,
         getMainMenuKeyboard(telegramId)
       );
     }
+    return;
+  }
+}
 
-    // Handle callback queries
-    async function handleCallbackQuery(callbackQuery, client) {
-      const chatId = callbackQuery.message?.chat.id;
-      const data = callbackQuery.data;
-      const telegramId = callbackQuery.from.id;
+// Main webhook handler
+app.post('/webhook', async (req, res) => {
+  try {
+    const update = req.body;
+    console.log('📥 Webhook received:', {
+      hasMessage: !!update.message,
+      hasCallbackQuery: !!update.callback_query,
+      callbackData: update.callback_query?.data,
+      messageText: update.message?.text
+    });
 
-      console.log('🔔 handleCallbackQuery:', { chatId, telegramId, data, clientId: client.id });
+    if (update.message) {
+      const client = await getOrCreateClient(update.message.from);
 
-      if (!chatId || !data) {
-        console.log('❌ Missing chatId or data in callback query');
-        await answerCallbackQuery(callbackQuery.id);
-        return;
-      }
+      // Handle photos separately from text messages
+      if (update.message.photo) {
+        console.log('📸 Photo received in webhook');
+        const chatId = update.message.chat.id;
+        const telegramId = update.message.from.id;
+        const state = await getState(chatId);
+        console.log('Current state:', state);
 
-      await clearState(chatId);
-      await answerCallbackQuery(callbackQuery.id);
+        // Handle payment screenshot
+        if (state?.state === 'waiting_payment') {
+          console.log('✅ State is waiting_payment, processing photo...');
+          // Get the largest photo
+          const photo = update.message.photo[update.message.photo.length - 1];
+          console.log('Photo object:', photo);
+          const fileUrl = await getFileUrl(photo.file_id);
+          console.log('Got fileUrl from Telegram:', fileUrl);
 
-      if (data === 'main_menu') {
-        await handleMainMenu(chatId, telegramId);
-        return;
-      }
+          if (fileUrl) {
+            const success = await savePaymentScreenshot(client.id, fileUrl);
 
-      if (data === 'free_slots') {
-        await handleFreeSlots(chatId, telegramId);
-        return;
-      }
+            if (success) {
+              await clearState(chatId);
+              await sendMessage(
+                chatId,
+                '✅ Скриншот оплаты получен. Спасибо!',
+                getMainMenuKeyboard(telegramId)
+              );
 
-      if (data === 'book_session') {
-        try {
-          console.log('📅 Calling handleBookSession');
-          await handleBookSession(chatId, telegramId);
-          console.log('✅ handleBookSession completed');
-        } catch (error) {
-          console.error('❌ Error in handleBookSession:', error);
-          await sendMessage(chatId, '❌ Произошла ошибка. Попробуйте позже.', getMainMenuKeyboard(telegramId));
-        }
-        return;
-      }
-
-      if (data === 'my_bookings') {
-        try {
-          console.log('📅 Calling handleMyBookings');
-          await handleMyBookings(chatId, client.id, telegramId);
-          console.log('✅ handleMyBookings completed');
-        } catch (error) {
-          console.error('❌ Error in handleMyBookings:', error);
-          await sendMessage(chatId, '❌ Произошла ошибка. Попробуйте позже.', getMainMenuKeyboard(telegramId));
-        }
-        return;
-      }
-
-      if (data === 'diary') {
-        await handleDiary(chatId, client.id, telegramId);
-        return;
-      }
-
-      if (data === 'diary_add') {
-        await handleDiaryAdd(chatId, client.id);
-        return;
-      }
-
-      if (data === 'diary_view') {
-        await handleDiaryView(chatId, client.id, telegramId);
-        return;
-      }
-
-      if (data === 'payment') {
-        await handlePayment(chatId, client.id);
-        return;
-      }
-
-      if (data === 'sos') {
-        await handleSos(chatId, client);
-        return;
-      }
-
-      if (data === 'admin_broadcast' && isAdmin(telegramId)) {
-        await handleBroadcast(chatId);
-        return;
-      }
-
-      // Handle date selection - show times for that date
-      if (data.startsWith('select_date_')) {
-        const selectedDate = data.replace('select_date_', '');
-        await handleSelectTime(chatId, selectedDate);
-        return;
-      }
-
-      // Handle slot selection - show format options
-      if (data.startsWith('select_slot_')) {
-        const slotId = data.replace('select_slot_', '');
-        await handleSelectFormat(chatId, slotId);
-        return;
-      }
-
-      // Handle booking with format
-      if (data.startsWith('book_offline_') || data.startsWith('book_online_')) {
-        const isOnline = data.startsWith('book_online_');
-        const slotId = data.replace('book_offline_', '').replace('book_online_', '');
-        const format = isOnline ? 'online' : 'offline';
-
-        console.log('📅 Booking request:', { slotId, format, clientId: client.id, callbackData: data });
-
-        const success = await bookSlot(client.id, slotId, format);
-
-        if (success) {
-          const formatText = isOnline ? '💻 онлайн' : '🏠 очно';
-          await sendMessage(
-            chatId,
-            `✅ <b>Вы успешно записались!</b>\n\nФормат: ${formatText}\n\nНапоминания придут за 24 часа и за 1 час до сессии.`,
-            getMainMenuKeyboard(telegramId)
-          );
-        } else {
-          await sendMessage(
-            chatId,
-            '😔 К сожалению, это время уже занято.\n\nПожалуйста, выберите другой слот.',
-            { inline_keyboard: [[{ text: '📅 Выбрать другое время', callback_data: 'book_session' }]] }
-          );
-        }
-        return;
-      }
-
-      if (data.startsWith('cancel_')) {
-        const bookingId = data.replace('cancel_', '');
-        const result = await cancelBooking(bookingId, false); // false = client cancellation
-
-        if (result.success) {
-          await sendMessage(
-            chatId,
-            '✅ Запись отменена.',
-            getMainMenuKeyboard(telegramId)
-          );
-
-          // Notify admin about client cancellation
-          if (result.slot) {
-            const name = client.first_name || 'Клиент';
-            const username = client.username ? `@${client.username}` : '';
+              // Notify admin
+              const name = client.first_name || 'Пользователь';
+              const username = client.username ? `@${client.username}` : '';
+              await sendMessage(
+                ADMIN_TELEGRAM_IDS[0],
+                `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
+                null,
+                false
+              );
+            } else {
+              await sendMessage(
+                chatId,
+                '❌ Ошибка сохранения скриншота. Попробуйте ещё раз.',
+                { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+              );
+            }
+          } else {
             await sendMessage(
-              ADMIN_TELEGRAM_IDS[0],
-              `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`,
-              null,
-              false
+              chatId,
+              '❌ Не удалось получить файл. Попробуйте ещё раз.',
+              { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
             );
           }
-        } else {
-          await sendMessage(
-            chatId,
-            `❌ ${result.error || 'Не удалось отменить запись. Попробуйте позже.'}`,
-            getMainMenuKeyboard(telegramId)
-          );
         }
-        return;
+      } else {
+        await handleTextMessage(update.message, client);
       }
     }
 
-    // Main webhook handler
-    app.post('/webhook', async (req, res) => {
-      try {
-        const update = req.body;
-        console.log('📥 Webhook received:', {
-          hasMessage: !!update.message,
-          hasCallbackQuery: !!update.callback_query,
-          callbackData: update.callback_query?.data,
-          messageText: update.message?.text
-        });
+    if (update.callback_query) {
+      console.log('🔔 Callback query received:', {
+        id: update.callback_query.id,
+        data: update.callback_query.data,
+        from: update.callback_query.from?.id,
+        message: update.callback_query.message?.chat?.id
+      });
+      const client = await getOrCreateClient(update.callback_query.from);
+      await handleCallbackQuery(update.callback_query, client);
+    }
 
-        if (update.message) {
-          const client = await getOrCreateClient(update.message.from);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error processing update:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-          // Handle photos separately from text messages
-          if (update.message.photo) {
-            console.log('📸 Photo received in webhook');
-            const chatId = update.message.chat.id;
-            const telegramId = update.message.from.id;
-            const state = await getState(chatId);
-            console.log('Current state:', state);
+// Endpoint for booking client from admin panel
+app.post('/book-for-client', async (req, res) => {
+  try {
+    const { clientId, date, time, format = 'offline' } = req.body;
 
-            // Handle payment screenshot
-            if (state?.state === 'waiting_payment') {
-              console.log('✅ State is waiting_payment, processing photo...');
-              // Get the largest photo
-              const photo = update.message.photo[update.message.photo.length - 1];
-              console.log('Photo object:', photo);
-              const fileUrl = await getFileUrl(photo.file_id);
-              console.log('Got fileUrl from Telegram:', fileUrl);
+    if (!clientId || !date || !time) {
+      return res.status(400).json({ error: 'clientId, date, and time are required' });
+    }
 
-              if (fileUrl) {
-                const success = await savePaymentScreenshot(client.id, fileUrl);
+    // Get client info
+    const client = await db.getClientById(clientId);
 
-                if (success) {
-                  await clearState(chatId);
-                  await sendMessage(
-                    chatId,
-                    '✅ Скриншот оплаты получен. Спасибо!',
-                    getMainMenuKeyboard(telegramId)
-                  );
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
 
-                  // Notify admin
-                  const name = client.first_name || 'Пользователь';
-                  const username = client.username ? `@${client.username}` : '';
-                  await sendMessage(
-                    ADMIN_TELEGRAM_IDS[0],
-                    `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
-                    null,
-                    false
-                  );
-                } else {
-                  await sendMessage(
-                    chatId,
-                    '❌ Ошибка сохранения скриншота. Попробуйте ещё раз.',
-                    { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
-                  );
-                }
-              } else {
-                await sendMessage(
-                  chatId,
-                  '❌ Не удалось получить файл. Попробуйте ещё раз.',
-                  { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
-                );
-              }
-            }
-          } else {
-            await handleTextMessage(update.message, client);
-          }
-        }
+    // Check if slot exists for this date and time
+    const existingSlotResult = await db.query(
+      'SELECT * FROM slots WHERE date = $1 AND time = $2',
+      [date, time]
+    );
+    const existingSlot = existingSlotResult.rows[0];
 
-        if (update.callback_query) {
-          console.log('🔔 Callback query received:', {
-            id: update.callback_query.id,
-            data: update.callback_query.data,
-            from: update.callback_query.from?.id,
-            message: update.callback_query.message?.chat?.id
-          });
-          const client = await getOrCreateClient(update.callback_query.from);
-          await handleCallbackQuery(update.callback_query, client);
-        }
+    let slotId;
 
-        res.json({ ok: true });
-      } catch (error) {
-        console.error('Error processing update:', error);
-        res.status(500).json({ error: error.message });
+    if (existingSlot) {
+      // Check if slot is free
+      if (existingSlot.status !== 'free') {
+        return res.status(400).json({ error: 'Slot is already booked' });
       }
-    });
+      slotId = existingSlot.id;
+    } else {
+      // Create a new slot
+      const newSlot = await db.createSlot(date, time, 'both');
+      if (!newSlot) {
+        return res.status(500).json({ error: 'Failed to create slot' });
+      }
+      slotId = newSlot.id;
+    }
 
-    // Endpoint for booking client from admin panel
-    app.post('/book-for-client', async (req, res) => {
-      try {
-        const { clientId, date, time, format = 'offline' } = req.body;
+    // Book the slot
+    await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
+    await db.createBooking(clientId, slotId);
 
-        if (!clientId || !date || !time) {
-          return res.status(400).json({ error: 'clientId, date, and time are required' });
-        }
-
-        // Get client info
-        const client = await db.getClientById(clientId);
-
-        if (!client) {
-          return res.status(404).json({ error: 'Client not found' });
-        }
-
-        // Check if slot exists for this date and time
-        const existingSlotResult = await db.query(
-          'SELECT * FROM slots WHERE date = $1 AND time = $2',
-          [date, time]
-        );
-        const existingSlot = existingSlotResult.rows[0];
-
-        let slotId;
-
-        if (existingSlot) {
-          // Check if slot is free
-          if (existingSlot.status !== 'free') {
-            return res.status(400).json({ error: 'Slot is already booked' });
-          }
-          slotId = existingSlot.id;
-        } else {
-          // Create a new slot
-          const newSlot = await db.createSlot(date, time, 'both');
-          if (!newSlot) {
-            return res.status(500).json({ error: 'Failed to create slot' });
-          }
-          slotId = newSlot.id;
-        }
-
-        // Book the slot
-        await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
-        await db.createBooking(clientId, slotId);
-
-        // Send notification to client
-        const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
-        const clientMessage = `📅 <b>Вам назначена консультация!</b>
+    // Send notification to client
+    const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
+    const clientMessage = `📅 <b>Вам назначена консультация!</b>
 
 📆 ${formatDate(date)} в ${formatTime(time)}
 ${formatText}
 
 Напоминания придут за 24 часа и за 1 час до сессии.`;
 
-        await sendMessage(client.telegram_id, clientMessage, null, false);
+    await sendMessage(client.telegram_id, clientMessage, null, false);
 
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error in book-for-client:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in book-for-client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // Endpoint for canceling booking from admin panel
-    app.post('/cancel-booking-admin', async (req, res) => {
-      try {
-        const { slotId } = req.body;
+// Endpoint for canceling booking from admin panel
+app.post('/cancel-booking-admin', async (req, res) => {
+  try {
+    const { slotId } = req.body;
 
-        if (!slotId) {
-          return res.status(400).json({ error: 'slotId is required' });
-        }
+    if (!slotId) {
+      return res.status(400).json({ error: 'slotId is required' });
+    }
 
-        console.log('Canceling booking for slot:', slotId);
+    console.log('Canceling booking for slot:', slotId);
 
-        // Get slot with client info
-        const slot = await db.getSlotWithClient(slotId);
+    // Get slot with client info
+    const slot = await db.getSlotWithClient(slotId);
 
-        if (!slot) {
-          return res.status(404).json({ error: 'Slot not found' });
-        }
+    if (!slot) {
+      return res.status(404).json({ error: 'Slot not found' });
+    }
 
-        const client = slot.telegram_id ? {
-          telegram_id: slot.telegram_id,
-          first_name: slot.first_name
-        } : null;
+    const client = slot.telegram_id ? {
+      telegram_id: slot.telegram_id,
+      first_name: slot.first_name
+    } : null;
 
-        // Cancel the booking (update status to 'canceled')
-        await db.cancelBookingBySlotId(slotId);
+    // Cancel the booking (update status to 'canceled')
+    await db.cancelBookingBySlotId(slotId);
 
+    // Free the slot
+    await db.updateSlot(slotId, { status: 'free', client_id: null, format: null });
+
+    // Send notification to client
+    if (client?.telegram_id) {
+      const name = client.first_name || 'Уважаемый клиент';
+      const message = `❌ <b>Запись отменена</b>
+
+${name}, к сожалению, ваша консультация на ${formatDate(slot.date)} в ${formatTime(slot.time)} была отменена.
+
+Пожалуйста, выберите другое удобное время для записи.`;
+
+      await sendMessage(client.telegram_id, message, null, false);
+      console.log('Notification sent to client:', client.telegram_id);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in cancel-booking-admin:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ==================== REST API ENDPOINTS FOR ADMIN PANEL ====================
+
+// GET /api/clients - Get all clients
+app.get('/api/clients', async (req, res) => {
+  try {
+    const clients = await db.getAllClients();
+    res.json(clients);
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/clients/:id - Update client
+app.put('/api/clients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { first_name, last_name } = req.body;
+
+    await db.query(
+      'UPDATE clients SET first_name = $1, last_name = $2 WHERE id = $3',
+      [first_name || null, last_name || null, id]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /api/clients/:id - Delete client
+app.delete('/api/clients/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get client info before deletion
+    const client = await db.getClientById(id);
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Get active bookings for this client
+    const bookings = await db.getClientBookings(id);
+
+    // Cancel all active bookings and send notifications
+    for (const booking of bookings) {
+      const slot = await db.getSlotById(booking.slot_id);
+      if (slot) {
+        // Cancel booking
+        await db.cancelBooking(booking.id);
         // Free the slot
-        await db.updateSlot(slotId, { status: 'free', client_id: null, format: null });
+        await db.updateSlot(booking.slot_id, { status: 'free', client_id: null, format: null });
 
         // Send notification to client
-        if (client?.telegram_id) {
+        if (client.telegram_id) {
           const name = client.first_name || 'Уважаемый клиент';
           const message = `❌ <b>Запись отменена</b>
 
@@ -1080,246 +1161,201 @@ ${name}, к сожалению, ваша консультация на ${formatD
 
 Пожалуйста, выберите другое удобное время для записи.`;
 
-          await sendMessage(client.telegram_id, message, null, false);
-          console.log('Notification sent to client:', client.telegram_id);
-        }
-
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error in cancel-booking-admin:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
-
-    // ==================== REST API ENDPOINTS FOR ADMIN PANEL ====================
-
-    // GET /api/clients - Get all clients
-    app.get('/api/clients', async (req, res) => {
-      try {
-        const clients = await db.getAllClients();
-        res.json(clients);
-      } catch (error) {
-        console.error('Error fetching clients:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
-
-    // PUT /api/clients/:id - Update client
-    app.put('/api/clients/:id', async (req, res) => {
-      try {
-        const { id } = req.params;
-        const { first_name, last_name } = req.body;
-
-        await db.query(
-          'UPDATE clients SET first_name = $1, last_name = $2 WHERE id = $3',
-          [first_name || null, last_name || null, id]
-        );
-
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error updating client:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
-
-    // DELETE /api/clients/:id - Delete client
-    app.delete('/api/clients/:id', async (req, res) => {
-      try {
-        const { id } = req.params;
-
-        // Get client info before deletion
-        const client = await db.getClientById(id);
-        if (!client) {
-          return res.status(404).json({ error: 'Client not found' });
-        }
-
-        // Get active bookings for this client
-        const bookings = await db.getClientBookings(id);
-
-        // Cancel all active bookings and send notifications
-        for (const booking of bookings) {
-          const slot = await db.getSlotById(booking.slot_id);
-          if (slot) {
-            // Cancel booking
-            await db.cancelBooking(booking.id);
-            // Free the slot
-            await db.updateSlot(booking.slot_id, { status: 'free', client_id: null, format: null });
-
-            // Send notification to client
-            if (client.telegram_id) {
-              const name = client.first_name || 'Уважаемый клиент';
-              const message = `❌ <b>Запись отменена</b>
-
-${name}, к сожалению, ваша консультация на ${formatDate(slot.date)} в ${formatTime(slot.time)} была отменена.
-
-Пожалуйста, выберите другое удобное время для записи.`;
-
-              try {
-                await sendMessage(client.telegram_id, message, null, false);
-              } catch (error) {
-                console.error('Error sending cancellation notification:', error);
-              }
-            }
+          try {
+            await sendMessage(client.telegram_id, message, null, false);
+          } catch (error) {
+            console.error('Error sending cancellation notification:', error);
           }
         }
-
-        // Delete client (will cascade delete related records)
-        await db.deleteClient(id);
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error deleting client:', error);
-        res.status(500).json({ error: 'Internal server error' });
       }
-    });
+    }
 
-    // GET /api/slots - Get all slots (with cutoff date)
-    app.get('/api/slots', async (req, res) => {
-      try {
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - 2);
-        const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
+    // Delete client (will cascade delete related records)
+    await db.deleteClient(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-        const slots = await db.getSlots(cutoffDateStr);
-        res.json(slots);
-      } catch (error) {
-        console.error('Error fetching slots:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+// GET /api/slots - Get all slots (only future slots)
+app.get('/api/slots', async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const slots = await db.getSlots(today);
+    res.json(slots);
+  } catch (error) {
+    console.error('Error fetching slots:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // POST /api/slots - Create slot
-    app.post('/api/slots', async (req, res) => {
-      try {
-        const { date, time, available_formats } = req.body;
+// POST /api/slots - Create slot
+app.post('/api/slots', async (req, res) => {
+  try {
+    const { date, time, available_formats } = req.body;
 
-        if (!date || !time) {
-          return res.status(400).json({ error: 'date and time are required' });
-        }
+    if (!date || !time) {
+      return res.status(400).json({ error: 'date and time are required' });
+    }
 
-        const slot = await db.createSlot(date, time, available_formats || 'both');
-        res.json(slot);
-      } catch (error) {
-        console.error('Error creating slot:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+    const slot = await db.createSlot(date, time, available_formats || 'both');
+    res.json(slot);
+  } catch (error) {
+    console.error('Error creating slot:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // DELETE /api/slots/:id - Delete slot
-    app.delete('/api/slots/:id', async (req, res) => {
-      try {
-        const { id } = req.params;
-        await db.deleteSlot(id);
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error deleting slot:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+// DELETE /api/slots/:id - Delete slot
+app.delete('/api/slots/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteSlot(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting slot:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // GET /api/sos - Get all SOS requests
-    app.get('/api/sos', async (req, res) => {
-      try {
-        const requests = await db.getSosRequests();
-        res.json(requests);
-      } catch (error) {
-        console.error('Error fetching SOS requests:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+// GET /api/sos - Get all SOS requests
+app.get('/api/sos', async (req, res) => {
+  try {
+    const requests = await db.getSosRequests();
+    res.json(requests);
+  } catch (error) {
+    console.error('Error fetching SOS requests:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // PUT /api/sos/:id - Mark SOS request as viewed
-    app.put('/api/sos/:id', async (req, res) => {
-      try {
-        const { id } = req.params;
-        await db.updateSosRequestStatus(id, 'viewed');
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error updating SOS request:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+// PUT /api/sos/:id - Mark SOS request as viewed
+app.put('/api/sos/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.updateSosRequestStatus(id, 'viewed');
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating SOS request:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // GET /api/payments - Get all payments
-    app.get('/api/payments', async (req, res) => {
-      try {
-        const payments = await db.getPayments();
-        res.json(payments);
-      } catch (error) {
-        console.error('Error fetching payments:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+// GET /api/payments - Get all payments
+app.get('/api/payments', async (req, res) => {
+  try {
+    const payments = await db.getPayments();
+    res.json(payments);
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // DELETE /api/payments/:id - Delete payment
-    app.delete('/api/payments/:id', async (req, res) => {
-      try {
-        const { id } = req.params;
+// DELETE /api/payments/:id - Delete payment
+app.delete('/api/payments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
 
-        // Get payment to delete file
-        const payments = await db.getPayments();
-        const payment = payments.find(p => p.id === id);
+    // Get payment to delete file
+    const payments = await db.getPayments();
+    const payment = payments.find(p => p.id === id);
 
-        if (payment) {
-          const { deletePaymentFile } = require('./storage');
-          await deletePaymentFile(payment.screenshot_url);
-        }
+    if (payment) {
+      const { deletePaymentFile } = require('./storage');
+      await deletePaymentFile(payment.screenshot_url);
+    }
 
-        await db.deletePayment(id);
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error deleting payment:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+    await db.deletePayment(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting payment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // GET /api/payment-card - Get payment card number
-    app.get('/api/payment-card', async (req, res) => {
-      try {
-        const setting = await db.getSetting('payment_card');
-        const cardNumber = setting && typeof setting.value === 'string'
-          ? JSON.parse(setting.value)
-          : setting?.value;
-        res.json(cardNumber || { card_number: '5208130004581850' });
-      } catch (error) {
-        console.error('Error fetching payment card:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+// DELETE /api/bookings/:id - Delete booking (admin only, cancels booking and frees slot)
+app.delete('/api/bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
 
-    // PUT /api/payment-card - Save payment card number
-    app.put('/api/payment-card', async (req, res) => {
-      try {
-        const { card_number } = req.body;
-        await db.setSetting('payment_card', { card_number });
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error saving payment card:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+    // Get booking info
+    const bookingResult = await db.query(
+      'SELECT slot_id, client_id FROM bookings WHERE id = $1',
+      [id]
+    );
 
-    // GET /api/diary - Get all diary entries
-    app.get('/api/diary', async (req, res) => {
-      try {
-        const result = await db.query(
-          `SELECT d.*, 
+    if (!bookingResult.rows[0]) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const booking = bookingResult.rows[0];
+    const slot = await db.getSlotById(booking.slot_id);
+
+    if (slot) {
+      // Cancel booking
+      await db.cancelBooking(id);
+      // Free the slot
+      await db.updateSlot(booking.slot_id, { status: 'free', client_id: null, format: null });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting booking:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/payment-card - Get payment card number
+app.get('/api/payment-card', async (req, res) => {
+  try {
+    const setting = await db.getSetting('payment_card');
+    const cardNumber = setting && typeof setting.value === 'string'
+      ? JSON.parse(setting.value)
+      : setting?.value;
+    res.json(cardNumber || { card_number: '5208130004581850' });
+  } catch (error) {
+    console.error('Error fetching payment card:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/payment-card - Save payment card number
+app.put('/api/payment-card', async (req, res) => {
+  try {
+    const { card_number } = req.body;
+    await db.setSetting('payment_card', { card_number });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving payment card:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/diary - Get all diary entries
+app.get('/api/diary', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT d.*, 
        c.first_name, c.last_name, c.username
      FROM diary_entries d
      JOIN clients c ON d.client_id = c.id
      ORDER BY d.created_at DESC
      LIMIT 50`
-        );
-        res.json(result.rows);
-      } catch (error) {
-        console.error('Error fetching diary entries:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    });
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching diary entries:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-    // Initialize storage on startup
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, async () => {
-      console.log(`Bot server running on port ${PORT}`);
-      await initStorage();
-      console.log('✓ Storage initialized');
-    });
+// Initialize storage on startup
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
+  console.log(`Bot server running on port ${PORT}`);
+  await initStorage();
+  console.log('✓ Storage initialized');
+});
