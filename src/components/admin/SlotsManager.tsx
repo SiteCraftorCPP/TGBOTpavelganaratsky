@@ -143,7 +143,7 @@ const SlotsManager = () => {
                   {selectedDate ? format(selectedDate, "PPP", { locale: ru }) : "Выберите дату"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
+              <PopoverContent className="w-auto p-0" align="start" side="bottom" collisionPadding={8}>
                 <Calendar
                   mode="single"
                   selected={selectedDate}
