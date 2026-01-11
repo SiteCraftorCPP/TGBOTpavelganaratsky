@@ -172,11 +172,23 @@ const PaymentScreenshots = () => {
                   key={payment.id}
                   className="border rounded-lg overflow-hidden bg-card"
                 >
-                  <div className="aspect-video relative">
+                  <div className="aspect-video relative bg-muted">
                     <img
                       src={payment.screenshot_url}
                       alt="Скриншот оплаты"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        console.error('Failed to load image:', payment.screenshot_url);
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent) {
+                          const placeholder = document.createElement('div');
+                          placeholder.className = 'w-full h-full flex items-center justify-center text-muted-foreground';
+                          placeholder.textContent = 'Ошибка загрузки изображения';
+                          parent.appendChild(placeholder);
+                        }
+                      }}
                     />
                     <a
                       href={payment.screenshot_url}
