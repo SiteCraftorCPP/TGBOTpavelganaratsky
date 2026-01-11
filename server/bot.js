@@ -341,12 +341,23 @@ async function getFileUrl(fileId) {
 // Handle booking flow - step 1: select day
 async function handleBookSession(chatId, telegramId) {
   try {
-    console.log('📅 handleBookSession: getting available dates');
+    console.log('📅 handleBookSession: getting available slots');
+    const slots = await getAvailableSlots();
+    console.log('📅 Raw slots from DB:', JSON.stringify(slots, null, 2));
+    console.log('📅 Number of slots:', slots.length);
+    
     const dates = await getAvailableDates();
-    console.log('📅 Available dates:', dates);
+    console.log('📅 Available dates after processing:', dates);
+    console.log('📅 Number of dates:', dates.length);
 
     if (dates.length === 0) {
-      console.log('📅 No available dates');
+      console.log('❌ No available dates - checking slots in DB');
+      const allSlotsCheck = await db.query(
+        'SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = $1) as free_count FROM slots WHERE date >= CURRENT_DATE',
+        ['free']
+      );
+      console.log('📊 Slots check:', allSlotsCheck.rows[0]);
+      
       await sendMessage(
         chatId,
         '😔 К сожалению, свободных слотов нет.\n\nПопробуйте позже или свяжитесь с психологом напрямую.',
