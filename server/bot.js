@@ -720,8 +720,11 @@ async function handleCallbackQuery(callbackQuery, client) {
   const chatId = callbackQuery.message?.chat.id;
   const data = callbackQuery.data;
   const telegramId = callbackQuery.from.id;
+  
+  console.log('🔔 handleCallbackQuery:', { chatId, telegramId, data, clientId: client.id });
 
   if (!chatId || !data) {
+    console.log('❌ Missing chatId or data in callback query');
     await answerCallbackQuery(callbackQuery.id);
     return;
   }
