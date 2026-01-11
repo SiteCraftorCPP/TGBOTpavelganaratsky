@@ -170,17 +170,14 @@ async function getSlotsForDate(date) {
 // Get client's upcoming bookings only
 async function getClientBookings(clientId) {
   const bookings = await db.getClientBookings(clientId);
-  console.log('📅 getClientBookings: raw bookings from DB', JSON.stringify(bookings, null, 2));
   
   const now = new Date();
   const today = now.toISOString().split('T')[0];
-  const currentTime = now.toTimeString().slice(0, 5);
-  console.log('📅 Filter criteria:', { today, currentTime });
-
+  const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+  
   // Filter only upcoming bookings
   const filtered = bookings.filter(booking => {
     if (!booking.date) {
-      console.log('❌ Booking has no date:', booking);
       return false;
     }
     
@@ -189,21 +186,19 @@ async function getClientBookings(clientId) {
       ? booking.date.toISOString().split('T')[0]
       : (typeof booking.date === 'string' ? booking.date.split('T')[0] : String(booking.date));
     
-    console.log('📅 Checking booking:', { bookingDate, bookingTime: booking.time, today, currentTime });
+    // Convert time to HH:MM format (cut seconds if present)
+    const bookingTime = typeof booking.time === 'string' 
+      ? booking.time.slice(0, 5) // Take only HH:MM
+      : String(booking.time).slice(0, 5);
     
     if (bookingDate > today) {
-      console.log('✅ Booking is in future (different day)');
-      return true;
+      return true; // Future date
     }
-    if (bookingDate === today && booking.time > currentTime) {
-      console.log('✅ Booking is today but later');
-      return true;
+    if (bookingDate === today && bookingTime >= currentTime) {
+      return true; // Today but not past
     }
-    console.log('❌ Booking is in the past');
-    return false;
+    return false; // Past booking
   });
-  
-  console.log('📅 Filtered bookings:', filtered.length, 'out of', bookings.length);
   
   return filtered.map(booking => {
     const dateStr = booking.date instanceof Date 
