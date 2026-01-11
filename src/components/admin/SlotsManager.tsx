@@ -105,14 +105,7 @@ const SlotsManager = () => {
   });
 
   const handleCreateSlot = () => {
-    if (!selectedDate) {
-      toast({ title: "Ошибка", description: "Выберите дату", variant: "destructive" });
-      return;
-    }
-    if (!newSlotTime || !/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(newSlotTime)) {
-      toast({ title: "Ошибка", description: "Некорректный формат времени", variant: "destructive" });
-      return;
-    }
+    if (!selectedDate) return;
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     createSlotMutation.mutate({ date: dateStr, time: newSlotTime, available_formats: newSlotFormats });
   };

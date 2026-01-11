@@ -1249,28 +1249,11 @@ app.post('/api/slots', async (req, res) => {
       return res.status(400).json({ error: 'date and time are required' });
     }
 
-    // Validate time format (HH:MM)
-    if (!/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
-      return res.status(400).json({ error: 'Invalid time format. Expected HH:MM' });
-    }
-
-    // Validate date format (YYYY-MM-DD)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
-    }
-
     const slot = await db.createSlot(date, time, available_formats || 'both');
-    if (!slot) {
-      return res.status(409).json({ error: 'Slot already exists for this date and time' });
-    }
     res.json(slot);
   } catch (error) {
     console.error('Error creating slot:', error);
-    // Check for PostgreSQL constraint violations
-    if (error.code === '23505') {
-      return res.status(409).json({ error: 'Slot already exists for this date and time' });
-    }
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
