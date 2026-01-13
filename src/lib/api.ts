@@ -47,4 +47,34 @@ export const api = {
 
   // Diary
   getDiaryEntries: () => apiRequest<any[]>('/diary'),
+
+  // Booking
+  cancelBooking: (slotId: string) => {
+    const baseUrl = API_BASE_URL.replace('/api', '');
+    return fetch(`${baseUrl}/cancel-booking-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slotId })
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `HTTP error! status: ${res.status}`);
+      }
+      return res.json();
+    });
+  },
+  bookForClient: (data: { clientId: string; date: string; time: string; format: string }) => {
+    const baseUrl = API_BASE_URL.replace('/api', '');
+    return fetch(`${baseUrl}/book-for-client`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `HTTP error! status: ${res.status}`);
+      }
+      return res.json();
+    });
+  },
 };

@@ -84,16 +84,7 @@ const SlotsManager = () => {
 
   const cancelBookingMutation = useMutation({
     mutationFn: async (slotId: string) => {
-      const response = await fetch('https://liftme.by/cancel-booking-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slotId })
-      });
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to cancel booking');
-      }
-      return data;
+      return await api.cancelBooking(slotId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["slots"] });

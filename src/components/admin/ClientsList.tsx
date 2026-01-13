@@ -40,7 +40,7 @@ const ClientsList = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
-
+  
   // Booking dialog state
   const [bookingDialogOpen, setBookingDialogOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -64,7 +64,7 @@ const ClientsList = () => {
   const updateMutation = useMutation({
     mutationFn: async ({ id, first_name, last_name }: { id: string; first_name: string; last_name: string }) => {
       await api.updateClient(id, {
-        first_name: first_name.trim() || null,
+          first_name: first_name.trim() || null, 
         last_name: last_name.trim() || null,
       });
     },
@@ -81,16 +81,7 @@ const ClientsList = () => {
 
   const bookForClientMutation = useMutation({
     mutationFn: async ({ clientId, date, time, format }: { clientId: string; date: string; time: string; format: string }) => {
-      const response = await fetch('https://liftme.by/book-for-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, date, time, format })
-      });
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to book');
-      }
-      return data;
+      return await api.bookForClient({ clientId, date, time, format });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
@@ -150,7 +141,7 @@ const ClientsList = () => {
   };
 
   const timeSlots = [
-    "09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
+    "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", 
     "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"
   ];
 
@@ -362,7 +353,7 @@ const ClientsList = () => {
                 <Button variant="outline" onClick={closeBookingDialog}>
                   Отмена
                 </Button>
-                <Button
+                <Button 
                   onClick={handleBookForClient}
                   disabled={!bookingDate || !bookingTime || bookForClientMutation.isPending}
                 >
