@@ -138,6 +138,15 @@ async function getOrCreateClient(telegramUser) {
 
   if (!client) {
     client = await db.createClient(telegramUser);
+
+    // Уведомляем админа о новом пользователе
+    const name = client.first_name || 'Клиент';
+    const username = client.username ? `@${client.username}` : 'нет username';
+    const lastName = client.last_name ? ` ${client.last_name}` : '';
+
+    const adminMessage = `👤 <b>Новый пользователь!</b>\n\nИмя: ${name}${lastName}\n👤 username: ${username}`;
+
+    await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
   }
 
   return client;
@@ -173,28 +182,28 @@ async function getClientBookings(clientId) {
   const bookings = await db.getClientBookings(clientId);
   console.log('📅 getClientBookings: raw bookings from DB:', JSON.stringify(bookings, null, 2));
   console.log('📅 getClientBookings: number of bookings:', bookings.length);
-  
+
   const now = new Date();
   const today = now.toISOString().split('T')[0];
   const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
   console.log('📅 Filter criteria:', { today, currentTime });
-  
+
   // Filter only upcoming bookings
   const filtered = bookings.filter(booking => {
     if (!booking.date) {
       return false;
     }
-    
+
     // Convert date to string if needed
-    const bookingDate = booking.date instanceof Date 
+    const bookingDate = booking.date instanceof Date
       ? booking.date.toISOString().split('T')[0]
       : (typeof booking.date === 'string' ? booking.date.split('T')[0] : String(booking.date));
-    
+
     // Convert time to HH:MM format (cut seconds if present)
-    const bookingTime = typeof booking.time === 'string' 
+    const bookingTime = typeof booking.time === 'string'
       ? booking.time.slice(0, 5) // Take only HH:MM
       : String(booking.time).slice(0, 5);
-    
+
     if (bookingDate > today) {
       return true; // Future date
     }
@@ -203,12 +212,12 @@ async function getClientBookings(clientId) {
     }
     return false; // Past booking
   });
-  
+
   return filtered.map(booking => {
-    const dateStr = booking.date instanceof Date 
+    const dateStr = booking.date instanceof Date
       ? booking.date.toISOString().split('T')[0]
       : (typeof booking.date === 'string' ? booking.date.split('T')[0] : String(booking.date));
-    
+
     return {
       ...booking,
       date: dateStr,
@@ -375,7 +384,7 @@ async function handleBookSession(chatId, telegramId) {
     const slots = await getAvailableSlots();
     console.log('📅 Raw slots from DB:', JSON.stringify(slots, null, 2));
     console.log('📅 Number of slots:', slots.length);
-    
+
     const dates = await getAvailableDates();
     console.log('📅 Available dates after processing:', dates);
     console.log('📅 Number of dates:', dates.length);
@@ -387,7 +396,7 @@ async function handleBookSession(chatId, telegramId) {
         ['free']
       );
       console.log('📊 Slots check:', allSlotsCheck.rows[0]);
-      
+
       await sendMessage(
         chatId,
         '😔 К сожалению, свободных слотов нет.\n\nПопробуйте позже или свяжитесь с психологом напрямую.',
@@ -672,7 +681,7 @@ async function sendBroadcast(text) {
   console.log(`📢 Broadcasting to ${clients.length} clients`);
   let sentCount = 0;
   let failedCount = 0;
-  
+
   for (const client of clients) {
     try {
       await sendMessage(client.telegram_id, text, null, false);
@@ -1079,7 +1088,7 @@ app.post('/book-for-client', async (req, res) => {
 
     // Get slot to format date properly
     const slot = await db.getSlotById(slotId);
-    
+
     // Send notification to client
     const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
     const clientMessage = `📅 <b>Вам назначена консультация!</b>
@@ -1250,7 +1259,7 @@ app.post('/api/slots', async (req, res) => {
     }
 
     const slot = await db.createSlot(date, time, available_formats || 'both');
-    
+
     // If slot already exists (ON CONFLICT DO NOTHING returns null), return existing slot
     if (!slot) {
       const existingSlot = await db.query(
@@ -1262,7 +1271,7 @@ app.post('/api/slots', async (req, res) => {
       }
       return res.status(409).json({ error: 'Slot already exists for this date and time' });
     }
-    
+
     res.json(slot);
   } catch (error) {
     console.error('Error creating slot:', error);
