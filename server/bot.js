@@ -137,7 +137,9 @@ async function getOrCreateClient(telegramUser) {
   let client = await db.getClientByTelegramId(telegramUser.id);
 
   if (!client) {
+    console.log('👤 Creating new client:', telegramUser.id);
     client = await db.createClient(telegramUser);
+    console.log('✅ New client created:', client.id);
 
     // Уведомляем админа о новом пользователе
     try {
@@ -147,7 +149,9 @@ async function getOrCreateClient(telegramUser) {
 
       const adminMessage = `👤 <b>Новый пользователь!</b>\n\nИмя: ${name}${lastName}\n👤 username: ${username}`;
 
+      console.log('📤 Sending new user notification to admin:', ADMIN_TELEGRAM_IDS[0]);
       await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
+      console.log('✅ New user notification sent');
     } catch (error) {
       console.error('❌ Error sending new user notification:', error);
     }
