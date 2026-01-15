@@ -36,6 +36,16 @@ console.log('✓ Environment variables loaded');
 console.log('✓ Bot token:', TELEGRAM_BOT_TOKEN ? `${TELEGRAM_BOT_TOKEN.substring(0, 10)}...` : 'NOT SET');
 
 // Telegram API functions
+async function sendMessageToAllAdmins(text) {
+  const promises = ADMIN_TELEGRAM_IDS.map(adminId => 
+    sendMessage(adminId, text, null, false).catch(error => {
+      console.error(`❌ Error sending message to admin ${adminId}:`, error);
+      return null;
+    })
+  );
+  return Promise.all(promises);
+}
+
 async function sendMessage(chatId, text, replyMarkup, useReplyKeyboard = true) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   const body = {
@@ -159,9 +169,9 @@ async function getOrCreateClient(telegramUser) {
 
       const adminMessage = `👤 <b>Новый пользователь!</b>\n\nИмя: ${name}${lastName}\n👤 username: ${username}`;
 
-      console.log('📤 Sending new user notification to admin:', ADMIN_TELEGRAM_IDS[0]);
-      const result = await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
-      console.log('✅ New user notification sent. Telegram API result:', JSON.stringify(result));
+      console.log('📤 Sending new user notification to all admins');
+      const results = await sendMessageToAllAdmins(adminMessage);
+      console.log('✅ New user notification sent to all admins. Results:', results.length);
     } catch (error) {
       console.error('❌ Error sending new user notification:', error);
     }
@@ -274,11 +284,8 @@ async function bookSlot(clientId, slotId, format = 'offline') {
       const username = client.username ? `@${client.username}` : '';
       const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
 
-      await sendMessage(
-        ADMIN_TELEGRAM_IDS[0],
-        `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`,
-        null,
-        false
+      await sendMessageToAllAdmins(
+        `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`
       );
     }
 
@@ -360,7 +367,7 @@ async function createSosRequest(clientId, client, text) {
 
 Вы можете ответить пользователю напрямую в Telegram.`;
 
-    await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
+    await sendMessageToAllAdmins(adminMessage);
     return true;
   } catch (error) {
     console.error('Error creating SOS request:', error);
@@ -786,7 +793,7 @@ async function handleTextMessage(message, client) {
 Сообщение:
 ${text}`;
 
-    await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
+    await sendMessageToAllAdmins(adminMessage);
 
     await sendMessage(
       chatId,
@@ -955,11 +962,8 @@ async function handleCallbackQuery(callbackQuery, client) {
       if (result.slot) {
         const name = client.first_name || 'Клиент';
         const username = client.username ? `@${client.username}` : '';
-        await sendMessage(
-          ADMIN_TELEGRAM_IDS[0],
-          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`,
-          null,
-          false
+        await sendMessageToAllAdmins(
+          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`
         );
       }
     } else {
@@ -1018,11 +1022,8 @@ app.post('/webhook', async (req, res) => {
               // Notify admin
               const name = client.first_name || 'Пользователь';
               const username = client.username ? `@${client.username}` : '';
-              await sendMessage(
-                ADMIN_TELEGRAM_IDS[0],
-                `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
-                null,
-                false
+              await sendMessageToAllAdmins(
+                `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`
               );
             } else {
               await sendMessage(
