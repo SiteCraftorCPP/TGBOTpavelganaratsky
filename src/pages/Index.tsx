@@ -18,11 +18,11 @@ const Index = () => {
         <div className="w-full px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl overflow-hidden flex items-center justify-center">
-              <img src={nuestrosRobotsLogo} alt="Nuestros Robots" className="h-full w-full object-cover" />
+              <img src={nuestrosRobotsLogo} alt="НАШИ БОТЫ" className="h-full w-full object-cover" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground">Nuestros Robots</h1>
-              <p className="text-sm text-muted-foreground">Ассистент психолога</p>
+              <h1 className="text-xl font-semibold text-foreground">НАШИ БОТЫ</h1>
+              <p className="text-sm text-muted-foreground">Панель управления</p>
             </div>
           </div>
         </div>
