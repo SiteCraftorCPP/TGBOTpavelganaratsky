@@ -289,7 +289,18 @@ const SlotsManager = () => {
               <p className="text-sm text-muted-foreground">Загрузка шаблона...</p>
             ) : template && template.days && template.days.length > 0 ? (
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Сохранённый шаблон:</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Сохранённый шаблон:</Label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => deleteTemplateMutation.mutate()}
+                    disabled={deleteTemplateMutation.isPending}
+                    className="h-8 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
                 <div className="space-y-1">
                   {(() => {
                     // Sort days by week order (Monday to Sunday)
