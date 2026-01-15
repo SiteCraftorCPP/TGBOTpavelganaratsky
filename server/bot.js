@@ -1665,12 +1665,12 @@ app.post('/api/schedule-template/apply', async (req, res) => {
 
     let createdCount = 0;
 
-    // Apply template for specified number of weeks (start from next week)
-    for (let week = 1; week <= weeks; week++) {
+    // Apply template for specified number of weeks (start from current week)
+    for (let week = 0; week < weeks; week++) {
       const weekMonday = new Date(currentMonday);
       weekMonday.setDate(currentMonday.getDate() + (week * 7));
 
-      console.log(`📅 Processing week ${week}, Monday: ${weekMonday.toISOString().split('T')[0]}`);
+      console.log(`📅 Processing week ${week + 1}, Monday: ${weekMonday.toISOString().split('T')[0]}`);
 
       for (const dayTemplate of templateData.days) {
         const dayIndex = weekDays.indexOf(dayTemplate.day);
