@@ -644,54 +644,119 @@ async function handlePayment(chatId, clientId) {
   const paymentLinkValue = parseSettingValue(paymentLink);
   const eripPathValue = parseSettingValue(eripPath);
   const accountNumberValue = parseSettingValue(accountNumber);
-  const cardNumber = parseSettingValue(cardSetting) || '5208130004581850';
+  const cardNumber = parseSettingValue(cardSetting);
 
-  // Build payment message
-  let paymentMessage = '💳 <b>Способы оплаты:</b>\n\n';
-
+  // Build menu with buttons for available payment methods
   const buttons = [];
 
-  // Online payment link
+  // Online payment link button
   if (paymentLinkValue && paymentLinkValue.trim()) {
-    paymentMessage += `🔗 <b>Онлайн-оплата:</b>\n`;
-    paymentMessage += `Перейдите по ссылке для оплаты\n\n`;
-    buttons.push([{ text: '💳 Оплатить онлайн', url: paymentLinkValue }]);
+    buttons.push([{ text: '🔗 Ссылка на оплату', callback_data: 'payment_link' }]);
   }
 
-  // ERIP
+  // ERIP button
   if (eripPathValue && eripPathValue.trim()) {
-    paymentMessage += `📱 <b>Оплата через ЕРИП:</b>\n`;
-    const eripLines = eripPathValue.split('\n').filter(line => line.trim());
-    eripLines.forEach(line => {
-      paymentMessage += `${line.trim()}\n`;
-    });
-    paymentMessage += '\n';
+    buttons.push([{ text: '📱 Путь ЕРИП', callback_data: 'payment_erip' }]);
   }
 
-  // Bank account
+  // Bank account button
   if (accountNumberValue && accountNumberValue.trim()) {
-    paymentMessage += `🏦 <b>Банковский перевод:</b>\n`;
-    paymentMessage += `<code>${accountNumberValue}</code>\n\n`;
+    buttons.push([{ text: '🏦 Номер счёта', callback_data: 'payment_account' }]);
   }
 
-  // Card number
+  // Card number button
   if (cardNumber && cardNumber.trim()) {
-    paymentMessage += `💳 <b>Перевод на карту:</b>\n`;
-    paymentMessage += `<code>${cardNumber}</code>\n\n`;
+    buttons.push([{ text: '💳 Номер карты', callback_data: 'payment_card' }]);
   }
 
-  paymentMessage += 'После оплаты пришлите скриншот в этот чат.';
+  if (buttons.length === 0) {
+    await sendMessage(
+      chatId,
+      '💳 <b>Способы оплаты</b>\n\nСпособы оплаты пока не настроены.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    );
+    return;
+  }
 
   // Add back button
   buttons.push([{ text: '◀️ Назад', callback_data: 'main_menu' }]);
 
-  // Send payment information
+  // Send payment menu
   await sendMessage(
     chatId,
-    paymentMessage,
+    '💳 <b>Выберите способ оплаты:</b>',
     { inline_keyboard: buttons }
   );
 
+  // Set state for waiting payment screenshot
+  await db.setSetting(`state_${chatId}`, { state: 'waiting_payment', client_id: clientId });
+}
+
+// Handle individual payment method display
+async function handlePaymentMethod(chatId, clientId, method) {
+  let paymentMessage = '';
+  let buttons = [];
+
+  switch (method) {
+    case 'payment_link': {
+      const paymentLink = await db.getSetting('payment_link');
+      const paymentLinkValue = parseSettingValue(paymentLink);
+      if (!paymentLinkValue || !paymentLinkValue.trim()) {
+        await sendMessage(chatId, '❌ Ссылка на оплату не настроена.', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'payment' }]] });
+        return;
+      }
+      paymentMessage = `🔗 <b>Ссылка на оплату:</b>\n\n<a href="${paymentLinkValue}">${paymentLinkValue}</a>\n\nПосле оплаты пришлите скриншот в этот чат.`;
+      buttons = [
+        [{ text: '🔗 Перейти к оплате', url: paymentLinkValue }],
+        [{ text: '◀️ К способам оплаты', callback_data: 'payment' }]
+      ];
+      break;
+    }
+    case 'payment_erip': {
+      const eripPath = await db.getSetting('erip_path');
+      const eripPathValue = parseSettingValue(eripPath);
+      if (!eripPathValue || !eripPathValue.trim()) {
+        await sendMessage(chatId, '❌ Путь ЕРИП не настроен.', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'payment' }]] });
+        return;
+      }
+      paymentMessage = `📱 <b>Путь ЕРИП:</b>\n\n`;
+      const eripLines = eripPathValue.split('\n').filter(line => line.trim());
+      eripLines.forEach(line => {
+        paymentMessage += `<code>${line.trim()}</code>\n`;
+      });
+      paymentMessage += '\nПосле оплаты пришлите скриншот в этот чат.';
+      buttons = [[{ text: '◀️ К способам оплаты', callback_data: 'payment' }]];
+      break;
+    }
+    case 'payment_account': {
+      const accountNumber = await db.getSetting('account_number');
+      const accountNumberValue = parseSettingValue(accountNumber);
+      if (!accountNumberValue || !accountNumberValue.trim()) {
+        await sendMessage(chatId, '❌ Номер счёта не настроен.', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'payment' }]] });
+        return;
+      }
+      paymentMessage = `🏦 <b>Номер счёта:</b>\n\n<code>${accountNumberValue}</code>\n\nПосле оплаты пришлите скриншот в этот чат.`;
+      buttons = [[{ text: '◀️ К способам оплаты', callback_data: 'payment' }]];
+      break;
+    }
+    case 'payment_card': {
+      const cardSetting = await db.getSetting('payment_card');
+      const cardNumber = parseSettingValue(cardSetting);
+      if (!cardNumber || !cardNumber.trim()) {
+        await sendMessage(chatId, '❌ Номер карты не настроен.', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'payment' }]] });
+        return;
+      }
+      paymentMessage = `💳 <b>Номер карты:</b>\n\n<code>${cardNumber}</code>\n\nПосле оплаты пришлите скриншот в этот чат.`;
+      buttons = [[{ text: '◀️ К способам оплаты', callback_data: 'payment' }]];
+      break;
+    }
+    default:
+      await sendMessage(chatId, '❌ Неизвестный способ оплаты.', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'payment' }]] });
+      return;
+  }
+
+  await sendMessage(chatId, paymentMessage, { inline_keyboard: buttons });
+  
   // Set state for waiting payment screenshot
   await db.setSetting(`state_${chatId}`, { state: 'waiting_payment', client_id: clientId });
 }
@@ -1008,6 +1073,12 @@ async function handleCallbackQuery(callbackQuery, client) {
 
   if (data === 'payment') {
     await handlePayment(chatId, client.id);
+    return;
+  }
+
+  // Handle individual payment methods
+  if (data === 'payment_link' || data === 'payment_erip' || data === 'payment_account' || data === 'payment_card') {
+    await handlePaymentMethod(chatId, client.id, data);
     return;
   }
 
