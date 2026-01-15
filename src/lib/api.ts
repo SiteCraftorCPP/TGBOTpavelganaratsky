@@ -45,6 +45,11 @@ export const api = {
   savePaymentCard: (cardNumber: string) =>
     apiRequest<void>('/payment-card', { method: 'PUT', body: JSON.stringify({ card_number: cardNumber }) }),
 
+  // Payment settings (all settings)
+  getPaymentSettings: () => apiRequest<{ payment_link: string; erip_path: string; account_number: string; card_number: string }>('/payment-settings'),
+  savePaymentSettings: (settings: { payment_link?: string; erip_path?: string; account_number?: string; card_number?: string }) =>
+    apiRequest<void>('/payment-settings', { method: 'PUT', body: JSON.stringify(settings) }),
+
   // Diary
   getDiaryEntries: () => apiRequest<any[]>('/diary'),
 

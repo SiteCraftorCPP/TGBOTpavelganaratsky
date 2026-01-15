@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import { CreditCard, Trash2, ExternalLink, User, Save, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -25,30 +27,37 @@ interface Payment {
 
 const PaymentScreenshots = () => {
   const queryClient = useQueryClient();
+  const [paymentLink, setPaymentLink] = useState("");
+  const [eripPath, setEripPath] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
   const [cardNumber, setCardNumber] = useState("");
 
-  // Fetch payment card number
-  const { data: cardSetting, isLoading: isLoadingCard } = useQuery({
-    queryKey: ["payment_card"],
+  // Fetch payment settings
+  const { data: paymentSettings, isLoading: isLoadingSettings } = useQuery({
+    queryKey: ["payment_settings"],
     queryFn: async () => {
-      return await api.getPaymentCard();
+      return await api.getPaymentSettings();
     },
   });
 
   useEffect(() => {
-    if (cardSetting?.card_number) {
-      setCardNumber(cardSetting.card_number);
+    if (paymentSettings) {
+      setPaymentLink(paymentSettings.payment_link || "");
+      setEripPath(paymentSettings.erip_path || "");
+      setAccountNumber(paymentSettings.account_number || "");
+      setCardNumber(paymentSettings.card_number || "");
     }
-  }, [cardSetting]);
+  }, [paymentSettings]);
 
-  // Save card number mutation
-  const saveCardMutation = useMutation({
-    mutationFn: async (newCardNumber: string) => {
-      await api.savePaymentCard(newCardNumber);
+  // Save payment settings mutation
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (settings: { payment_link?: string; erip_path?: string; account_number?: string; card_number?: string }) => {
+      await api.savePaymentSettings(settings);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["payment_settings"] });
       queryClient.invalidateQueries({ queryKey: ["payment_card"] });
-      toast.success("Номер карты сохранён");
+      toast.success("Настройки сохранены");
     },
     onError: () => {
       toast.error("Ошибка сохранения");
@@ -96,15 +105,18 @@ const PaymentScreenshots = () => {
     return [first_name, last_name].filter(Boolean).join(" ") || "Без имени";
   };
 
-  const handleSaveCard = () => {
-    if (cardNumber.trim()) {
-      saveCardMutation.mutate(cardNumber.trim());
-    }
+  const handleSaveSettings = () => {
+    saveSettingsMutation.mutate({
+      payment_link: paymentLink,
+      erip_path: eripPath,
+      account_number: accountNumber,
+      card_number: cardNumber,
+    });
   };
 
   return (
     <div className="space-y-6">
-      {/* Card Number Settings */}
+      {/* Payment Settings */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -112,37 +124,87 @@ const PaymentScreenshots = () => {
             Настройки оплаты
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="cardNumber">Номер карты для оплаты</Label>
-              <Input
-                id="cardNumber"
-                value={cardNumber}
-                onChange={(e) => setCardNumber(e.target.value)}
-                placeholder="Введите номер карты"
-                disabled={isLoadingCard}
-              />
-              <p className="text-xs text-muted-foreground">
-                Этот номер будет отправляться клиентам при нажатии кнопки "Оплата" в боте
-              </p>
-            </div>
-            <div className="flex items-end">
-              <Button
-                onClick={handleSaveCard}
-                disabled={saveCardMutation.isPending || !cardNumber.trim()}
-              >
-                {saveCardMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                <span className="ml-2">Сохранить</span>
-              </Button>
-            </div>
+        <CardContent className="space-y-4">
+          {/* Payment Link */}
+          <div className="space-y-2">
+            <Label htmlFor="paymentLink">Ссылка на оплату</Label>
+            <Input
+              id="paymentLink"
+              value={paymentLink}
+              onChange={(e) => setPaymentLink(e.target.value)}
+              placeholder="https://checkout.bepaid.by/v2/confirm_order/..."
+              disabled={isLoadingSettings}
+            />
+            <p className="text-xs text-muted-foreground">
+              Ссылка для онлайн-оплаты (например, ссылка на платёжную систему)
+            </p>
+          </div>
+
+          {/* ERIP Path */}
+          <div className="space-y-2">
+            <Label htmlFor="eripPath">Путь ЕРИП</Label>
+            <Textarea
+              id="eripPath"
+              value={eripPath}
+              onChange={(e) => setEripPath(e.target.value)}
+              placeholder="Tpa&#10;TA&#10;TA"
+              rows={4}
+              disabled={isLoadingSettings}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Инструкция для оплаты через ЕРИП (можно несколько строк)
+            </p>
+          </div>
+
+          {/* Account Number */}
+          <div className="space-y-2">
+            <Label htmlFor="accountNumber">Номер счёта</Label>
+            <Input
+              id="accountNumber"
+              value={accountNumber}
+              onChange={(e) => setAccountNumber(e.target.value)}
+              placeholder="321"
+              disabled={isLoadingSettings}
+            />
+            <p className="text-xs text-muted-foreground">
+              Номер расчётного счёта для банковского перевода
+            </p>
+          </div>
+
+          {/* Card Number */}
+          <div className="space-y-2">
+            <Label htmlFor="cardNumber">Номер карты</Label>
+            <Input
+              id="cardNumber"
+              value={cardNumber}
+              onChange={(e) => setCardNumber(e.target.value)}
+              placeholder="123"
+              disabled={isLoadingSettings}
+            />
+            <p className="text-xs text-muted-foreground">
+              Номер банковской карты для перевода
+            </p>
+          </div>
+
+          {/* Save Button */}
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={handleSaveSettings}
+              disabled={saveSettingsMutation.isPending || isLoadingSettings}
+            >
+              {saveSettingsMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              <span className="ml-2">Сохранить настройки</span>
+            </Button>
           </div>
         </CardContent>
       </Card>
+
+      <Separator />
 
       {/* Payment Screenshots */}
       <Card>

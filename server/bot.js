@@ -1426,6 +1426,64 @@ app.put('/api/payment-card', async (req, res) => {
   }
 });
 
+// GET /api/payment-settings - Get all payment settings
+app.get('/api/payment-settings', async (req, res) => {
+  try {
+    const paymentLink = await db.getSetting('payment_link');
+    const eripPath = await db.getSetting('erip_path');
+    const accountNumber = await db.getSetting('account_number');
+    const cardNumber = await db.getSetting('payment_card');
+
+    const parseValue = (setting) => {
+      if (!setting) return '';
+      if (typeof setting.value === 'string') {
+        try {
+          const parsed = JSON.parse(setting.value);
+          return parsed.value || parsed.card_number || '';
+        } catch {
+          return setting.value;
+        }
+      }
+      return setting.value?.value || setting.value?.card_number || '';
+    };
+
+    res.json({
+      payment_link: parseValue(paymentLink) || '',
+      erip_path: parseValue(eripPath) || '',
+      account_number: parseValue(accountNumber) || '',
+      card_number: parseValue(cardNumber) || '',
+    });
+  } catch (error) {
+    console.error('Error fetching payment settings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/payment-settings - Save all payment settings
+app.put('/api/payment-settings', async (req, res) => {
+  try {
+    const { payment_link, erip_path, account_number, card_number } = req.body;
+
+    if (payment_link !== undefined) {
+      await db.setSetting('payment_link', { value: payment_link || '' });
+    }
+    if (erip_path !== undefined) {
+      await db.setSetting('erip_path', { value: erip_path || '' });
+    }
+    if (account_number !== undefined) {
+      await db.setSetting('account_number', { value: account_number || '' });
+    }
+    if (card_number !== undefined) {
+      await db.setSetting('payment_card', { card_number: card_number || '' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving payment settings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/diary - Get all diary entries
 app.get('/api/diary', async (req, res) => {
   try {
