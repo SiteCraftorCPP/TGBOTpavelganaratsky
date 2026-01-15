@@ -37,7 +37,7 @@ console.log('✓ Bot token:', TELEGRAM_BOT_TOKEN ? `${TELEGRAM_BOT_TOKEN.substri
 
 // Telegram API functions
 async function sendMessageToAllAdmins(text) {
-  const promises = ADMIN_TELEGRAM_IDS.map(adminId => 
+  const promises = ADMIN_TELEGRAM_IDS.map(adminId =>
     sendMessage(adminId, text, null, false).catch(error => {
       console.error(`❌ Error sending message to admin ${adminId}:`, error);
       return null;
@@ -167,7 +167,7 @@ async function getOrCreateClient(telegramUser) {
       const username = client.username ? `@${client.username}` : 'нет username';
       const lastName = client.last_name ? ` ${client.last_name}` : '';
 
-      const adminMessage = `👤 <b>Новый пользователь!</b>\n\nИмя: ${name}${lastName}\n👤 username: ${username}`;
+      const adminMessage = `🎉 <b>Новый пользователь!</b>\n\n👤 username: ${username}\n✨ Имя: ${name}${lastName}`;
 
       console.log('📤 Sending new user notification to all admins');
       const results = await sendMessageToAllAdmins(adminMessage);
