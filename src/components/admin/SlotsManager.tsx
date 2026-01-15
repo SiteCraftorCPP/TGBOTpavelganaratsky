@@ -251,9 +251,9 @@ const SlotsManager = () => {
               </Select>
             </div>
 
-            <Button 
-              onClick={handleCreateSlot} 
-              className="w-full" 
+            <Button
+              onClick={handleCreateSlot}
+              className="w-full"
               disabled={!selectedDate || createSlotMutation.isPending}
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -374,7 +374,7 @@ const SlotsManager = () => {
                       const fullName = [slot.clients?.first_name, slot.clients?.last_name]
                         .filter(Boolean)
                         .join(" ") || slot.clients?.username || "Клиент";
-                      const telegramLink = slot.clients?.telegram_id 
+                      const telegramLink = slot.clients?.telegram_id
                         ? `https://t.me/${slot.clients.username || ''}`.replace('https://t.me/', `tg://user?id=${slot.clients.telegram_id}`)
                         : null;
                       const formatLabel = slot.format === "online" ? "💻" : "🏠";

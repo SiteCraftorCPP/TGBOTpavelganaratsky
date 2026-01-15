@@ -1229,7 +1229,7 @@ app.post('/create-regular-bookings', async (req, res) => {
       try {
         // Ensure time format is HH:MM:SS for database comparison
         const timeFormatted = time.includes(':') && time.split(':').length === 2 ? `${time}:00` : time;
-        
+
         // Check if slot exists (compare both HH:MM and HH:MM:SS formats)
         const existingSlotResult = await db.query(
           `SELECT * FROM slots 
@@ -1265,9 +1265,9 @@ app.post('/create-regular-bookings', async (req, res) => {
 
         // Book the slot with "Регулярный клиент" comment
         console.log(`📅 Booking slot ${slotId} for client ${clientId}`);
-        await db.updateSlot(slotId, { 
-          status: 'booked', 
-          client_id: clientId, 
+        await db.updateSlot(slotId, {
+          status: 'booked',
+          client_id: clientId,
           format,
           comment: 'Регулярный клиент'
         });
@@ -1295,9 +1295,9 @@ app.post('/create-regular-bookings', async (req, res) => {
     console.log(`📅 Regular bookings creation complete: ${createdCount} created, ${errors.length} errors`);
 
     if (createdCount === 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Не удалось создать ни одной консультации',
-        errors 
+        errors
       });
     }
 
