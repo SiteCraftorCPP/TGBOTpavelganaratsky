@@ -97,11 +97,23 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(async (res) => {
+      const responseText = await res.text();
       if (!res.ok) {
-        const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(error.error || `HTTP error! status: ${res.status}`);
+        try {
+          const error = JSON.parse(responseText);
+          throw new Error(error.error || error.message || `HTTP error! status: ${res.status}`);
+        } catch (e) {
+          if (e instanceof Error && e.message.includes('error')) {
+            throw e;
+          }
+          throw new Error(responseText || `HTTP error! status: ${res.status}`);
+        }
       }
-      return res.json();
+      try {
+        return JSON.parse(responseText);
+      } catch (e) {
+        return { success: true };
+      }
     });
   },
 };

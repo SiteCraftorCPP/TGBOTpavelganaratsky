@@ -1186,14 +1186,17 @@ ${formatText}
 // Endpoint for creating regular bookings (weekly consultations)
 app.post('/create-regular-bookings', async (req, res) => {
   try {
+    console.log('📅 create-regular-bookings request:', req.body);
     const { clientId, date, time, weeks = 4, format = 'offline' } = req.body;
 
     if (!clientId || !date || !time) {
+      console.log('❌ Missing required fields:', { clientId, date, time });
       return res.status(400).json({ error: 'clientId, date, and time are required' });
     }
 
     // Get client info
     const client = await db.getClientById(clientId);
+    console.log('📅 Client found:', client ? client.id : 'not found');
 
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
@@ -1224,10 +1227,15 @@ app.post('/create-regular-bookings', async (req, res) => {
       }
 
       try {
-        // Check if slot exists
+        // Ensure time format is HH:MM:SS for database comparison
+        const timeFormatted = time.includes(':') && time.split(':').length === 2 ? `${time}:00` : time;
+        
+        // Check if slot exists (compare both HH:MM and HH:MM:SS formats)
         const existingSlotResult = await db.query(
-          'SELECT * FROM slots WHERE date = $1 AND time = $2',
-          [dateStr, time]
+          `SELECT * FROM slots 
+           WHERE date = $1 
+           AND (time = $2 OR time = $3 OR time::text LIKE $4)`,
+          [dateStr, time, timeFormatted, `${time}%`]
         );
         const existingSlot = existingSlotResult.rows[0];
 
@@ -1241,19 +1249,31 @@ app.post('/create-regular-bookings', async (req, res) => {
           }
           slotId = existingSlot.id;
         } else {
-          // Create new slot
-          const newSlot = await db.createSlot(dateStr, time, format === 'online' ? 'online' : 'offline');
+          // Create new slot - ensure time format is HH:MM:SS
+          const timeFormatted = time.includes(':') && time.split(':').length === 2 ? `${time}:00` : time;
+          const slotFormat = format === 'online' ? 'online' : 'offline';
+          console.log(`📅 Creating slot: ${dateStr} ${timeFormatted} (${slotFormat})`);
+          const newSlot = await db.createSlot(dateStr, timeFormatted, slotFormat);
           if (!newSlot) {
+            console.log(`❌ Failed to create slot: ${dateStr} ${timeFormatted}`);
             errors.push(`${dateStr} ${time} - не удалось создать слот`);
             continue;
           }
           slotId = newSlot.id;
+          console.log(`✅ Slot created: ${slotId}`);
         }
 
-        // Book the slot
-        await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
+        // Book the slot with "Регулярный клиент" comment
+        console.log(`📅 Booking slot ${slotId} for client ${clientId}`);
+        await db.updateSlot(slotId, { 
+          status: 'booked', 
+          client_id: clientId, 
+          format,
+          comment: 'Регулярный клиент'
+        });
         await db.createBooking(clientId, slotId);
         createdCount++;
+        console.log(`✅ Booking created for ${dateStr} ${time}, total: ${createdCount}`);
 
         // Send notification to client for first consultation only
         if (week === 0) {
@@ -1267,10 +1287,12 @@ app.post('/create-regular-bookings', async (req, res) => {
           );
         }
       } catch (error) {
-        console.error(`Error creating booking for ${dateStr}:`, error);
+        console.error(`❌ Error creating booking for ${dateStr}:`, error);
         errors.push(`${dateStr} ${time} - ${error.message}`);
       }
     }
+
+    console.log(`📅 Regular bookings creation complete: ${createdCount} created, ${errors.length} errors`);
 
     if (createdCount === 0) {
       return res.status(400).json({ 

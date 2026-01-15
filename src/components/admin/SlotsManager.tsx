@@ -388,9 +388,16 @@ const SlotsManager = () => {
                             <span className="font-medium">{slot.time.slice(0, 5)}</span>
                             {slot.status === "booked" ? (
                               <>
-                                <Badge variant="secondary" className="flex items-center gap-1">
-                                  {formatLabel} {fullName}
-                                </Badge>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Badge variant="secondary" className="flex items-center gap-1">
+                                    {formatLabel} {fullName}
+                                  </Badge>
+                                  {slot.comment === 'Регулярный клиент' && (
+                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                      Регулярный
+                                    </Badge>
+                                  )}
+                                </div>
                                 {slot.clients?.telegram_id && (
                                   <a
                                     href={`https://t.me/${slot.clients.username || ''}`}
