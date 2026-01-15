@@ -278,12 +278,19 @@ const SlotsManager = () => {
               <div className="space-y-2">
                 <Label className="text-sm font-semibold">Сохранённый шаблон:</Label>
                 <div className="space-y-1">
-                  {template.days.map((day: TemplateDay) => (
-                    <div key={day.day} className="text-sm">
-                      <span className="font-medium">{weekDaysNames[day.day]}:</span>{" "}
-                      {day.times.map(t => t.time).join(", ")}
-                    </div>
-                  ))}
+                  {(() => {
+                    // Sort days by week order (Monday to Sunday)
+                    const weekOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                    const sortedDays = [...template.days].sort((a, b) => {
+                      return weekOrder.indexOf(a.day) - weekOrder.indexOf(b.day);
+                    });
+                    return sortedDays.map((day: TemplateDay) => (
+                      <div key={day.day} className="text-sm">
+                        <span className="font-medium">{weekDaysNames[day.day]}:</span>{" "}
+                        {day.times.map(t => t.time).join(", ")}
+                      </div>
+                    ));
+                  })()}
                 </div>
               </div>
             ) : (
