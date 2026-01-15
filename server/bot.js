@@ -1592,7 +1592,15 @@ app.post('/api/schedule-template', async (req, res) => {
     );
 
     console.log('📅 Found slots:', slots.rows.length);
-    console.log('📅 Slots by date:', slots.rows.map(s => `${s.date} ${s.time} (${s.status})`).join(', '));
+    if (slots.rows.length > 0) {
+      console.log('📅 Raw slots from DB:');
+      slots.rows.forEach(slot => {
+        const dateValue = slot.date instanceof Date ? slot.date.toISOString().split('T')[0] : slot.date;
+        console.log(`  - ID: ${slot.id}, Date: ${dateValue}, Time: ${slot.time}, Status: ${slot.status}, Formats: ${slot.available_formats}`);
+      });
+    } else {
+      console.log('📅 No slots found in DB for this week');
+    }
 
     // Group by day of week (0 = Monday, 6 = Sunday)
     const weekDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -1659,7 +1667,7 @@ app.post('/api/schedule-template/apply', async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    
+
     // Calculate next Monday (that hasn't arrived yet) - ALWAYS start from next week
     let daysUntilMonday;
     if (dayOfWeek === 0) {
@@ -1672,7 +1680,7 @@ app.post('/api/schedule-template/apply', async (req, res) => {
       // Today is Tuesday-Saturday, next Monday is (8 - dayOfWeek) days away
       daysUntilMonday = 8 - dayOfWeek;
     }
-    
+
     const startMonday = new Date(today);
     startMonday.setDate(today.getDate() + daysUntilMonday);
     startMonday.setHours(0, 0, 0, 0);
