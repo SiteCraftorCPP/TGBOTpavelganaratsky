@@ -1572,9 +1572,10 @@ app.post('/api/schedule-template', async (req, res) => {
 
     console.log('📅 Saving template for week:', mondayStr, 'to', sundayStr);
 
+    // Get ALL slots from current week (not just free ones) to save complete schedule
     const slots = await db.query(
       `SELECT * FROM slots 
-       WHERE date >= $1::date AND date <= $2::date AND status = 'free'
+       WHERE date >= $1::date AND date <= $2::date
        ORDER BY date, time`,
       [mondayStr, sundayStr]
     );
@@ -1592,9 +1593,9 @@ app.post('/api/schedule-template', async (req, res) => {
 
       // Normalize slot dates for comparison
       const daySlots = slots.rows.filter(slot => {
-        const slotDate = slot.date instanceof Date 
+        const slotDate = slot.date instanceof Date
           ? slot.date.toISOString().split('T')[0]
-          : typeof slot.date === 'string' 
+          : typeof slot.date === 'string'
             ? slot.date.split('T')[0]
             : String(slot.date).split('T')[0];
         return slotDate === dateStr;
@@ -1680,14 +1681,34 @@ app.post('/api/schedule-template/apply', async (req, res) => {
             const timeStr = typeof timeSlot.time === 'string' ? timeSlot.time : String(timeSlot.time);
             const formats = timeSlot.available_formats || 'both';
             console.log(`📅 Creating slot: ${dateStr} ${timeStr} (${formats})`);
-            const slot = await db.createSlot(dateStr, timeStr, formats);
-            if (slot) {
-              createdCount++;
-              console.log(`✅ Slot created: ${slot.id}`);
+            
+            // Check if slot already exists
+            const existingSlot = await db.query(
+              'SELECT * FROM slots WHERE date = $1 AND time = $2',
+              [dateStr, timeStr]
+            );
+            
+            if (existingSlot.rows.length > 0) {
+              console.log(`ℹ️ Slot already exists: ${dateStr} ${timeStr}`);
+              // Update available_formats if different
+              if (existingSlot.rows[0].available_formats !== formats) {
+                await db.query(
+                  'UPDATE slots SET available_formats = $1 WHERE id = $2',
+                  [formats, existingSlot.rows[0].id]
+                );
+                console.log(`✅ Updated slot formats: ${dateStr} ${timeStr}`);
+              }
+            } else {
+              const slot = await db.createSlot(dateStr, timeStr, formats);
+              if (slot) {
+                createdCount++;
+                console.log(`✅ Slot created: ${slot.id}`);
+              } else {
+                console.log(`⚠️ Failed to create slot: ${dateStr} ${timeStr}`);
+              }
             }
           } catch (error) {
-            // Slot might already exist, ignore
-            console.log(`⚠️ Slot already exists or error: ${dateStr} ${timeSlot.time} - ${error.message}`);
+            console.error(`❌ Error creating slot: ${dateStr} ${timeSlot.time} - ${error.message}`);
           }
         }
       }
