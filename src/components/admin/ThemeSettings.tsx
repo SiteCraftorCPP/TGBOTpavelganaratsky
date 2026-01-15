@@ -46,7 +46,7 @@ const ThemeSettings = () => {
   };
 
   const saveAboutMeMutation = useMutation({
-    mutationFn: async (data: { text: string; photo?: File }) => {
+    mutationFn: async (data: { text: string; photo?: File; remove_photo?: boolean }) => {
       return await api.saveAboutMe(data);
     },
     onSuccess: () => {
@@ -54,8 +54,9 @@ const ThemeSettings = () => {
       setPhotoFile(null);
       toast.success("Информация сохранена");
     },
-    onError: () => {
-      toast.error("Ошибка сохранения");
+    onError: (error: Error) => {
+      console.error('Error saving about me:', error);
+      toast.error(`Ошибка сохранения: ${error.message}`);
     },
   });
 

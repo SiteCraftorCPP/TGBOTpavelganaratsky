@@ -1769,18 +1769,33 @@ app.get('/api/about-me', async (req, res) => {
 // PUT /about-me - Save about me information
 app.put('/about-me', upload.single('photo'), async (req, res) => {
   try {
-    const { text } = req.body;
+    console.log('📝 Saving about me:', {
+      hasFile: !!req.file,
+      body: req.body,
+      removePhoto: req.body?.remove_photo
+    });
+
+    const text = req.body?.text || '';
     let photoUrl = null;
 
     // Handle photo upload
     if (req.file) {
+      console.log('📸 Processing photo upload:', {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
       const extension = req.file.originalname.split('.').pop() || 'jpg';
       photoUrl = await saveAboutMePhoto(req.file.buffer, extension);
       
       if (photoUrl) {
         await db.setSetting('about_me_photo', { photo_url: photoUrl });
+        console.log('✅ Photo saved:', photoUrl);
+      } else {
+        console.error('❌ Failed to save photo');
       }
-    } else if (req.body.remove_photo === 'true') {
+    } else if (req.body?.remove_photo === 'true') {
+      console.log('🗑️ Removing photo');
       // Remove photo if requested
       await deleteAboutMePhoto();
       await db.query('DELETE FROM bot_settings WHERE key = $1', ['about_me_photo']);
@@ -1789,17 +1804,20 @@ app.put('/about-me', upload.single('photo'), async (req, res) => {
       // Keep existing photo
       const existingPhoto = await db.getSetting('about_me_photo');
       photoUrl = existingPhoto?.value?.photo_url || existingPhoto?.value || null;
+      console.log('📸 Keeping existing photo:', photoUrl);
     }
 
     // Save text
     if (text !== undefined) {
       await db.setSetting('about_me_text', { value: text });
+      console.log('✅ Text saved:', text.substring(0, 50) + '...');
     }
 
     res.json({ success: true, text: text || '', photo_url: photoUrl });
   } catch (error) {
-    console.error('Error saving about me:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Error saving about me:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 
