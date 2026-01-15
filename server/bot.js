@@ -1199,28 +1199,39 @@ app.post('/book-for-client', async (req, res) => {
       return res.status(404).json({ error: 'Client not found' });
     }
 
-    // Check if slot exists for this date and time
+    // Ensure time format is HH:MM:SS for database comparison
+    const timeFormatted = time.includes(':') && time.split(':').length === 2 ? `${time}:00` : time;
+    
+    // Check if slot exists for this date and time (compare both HH:MM and HH:MM:SS formats)
     const existingSlotResult = await db.query(
-      'SELECT * FROM slots WHERE date = $1 AND time = $2',
-      [date, time]
+      `SELECT * FROM slots 
+       WHERE date = $1::date 
+       AND (time = $2::time OR time = $3::time OR time::text LIKE $4)`,
+      [date, time, timeFormatted, `${time}%`]
     );
     const existingSlot = existingSlotResult.rows[0];
 
     let slotId;
 
     if (existingSlot) {
-      // Check if slot is free
-      if (existingSlot.status !== 'free') {
-        return res.status(400).json({ error: 'Slot is already booked' });
+      console.log('📅 Existing slot found:', { id: existingSlot.id, status: existingSlot.status, date: existingSlot.date, time: existingSlot.time });
+      // Check if slot is free (status should be 'free')
+      if (existingSlot.status && existingSlot.status !== 'free') {
+        console.log('❌ Slot is already booked:', existingSlot.status);
+        return res.status(400).json({ error: 'Слот уже занят' });
       }
       slotId = existingSlot.id;
+      console.log('✅ Using existing free slot:', slotId);
     } else {
+      console.log('📅 No slot found, creating new one for:', { date, time });
       // Create a new slot
-      const newSlot = await db.createSlot(date, time, 'both');
+      const newSlot = await db.createSlot(date, timeFormatted, 'both');
       if (!newSlot) {
-        return res.status(500).json({ error: 'Failed to create slot' });
+        console.error('❌ Failed to create slot');
+        return res.status(500).json({ error: 'Не удалось создать слот' });
       }
       slotId = newSlot.id;
+      console.log('✅ New slot created:', slotId);
     }
 
     // Book the slot
