@@ -60,7 +60,15 @@ async function sendMessage(chatId, text, replyMarkup, useReplyKeyboard = true) {
     body: JSON.stringify(body),
   });
 
-  return response.json();
+  const result = await response.json();
+
+  if (!result.ok) {
+    console.error('❌ Telegram API error:', JSON.stringify(result));
+  } else {
+    console.log('✅ Message sent successfully to chat_id:', chatId);
+  }
+
+  return result;
 }
 
 async function sendPhoto(chatId, photoUrl, caption, replyMarkup) {
@@ -134,7 +142,9 @@ function getMainMenuKeyboard(telegramId) {
 }
 
 async function getOrCreateClient(telegramUser) {
+  console.log('🔍 getOrCreateClient called for telegram_id:', telegramUser.id);
   let client = await db.getClientByTelegramId(telegramUser.id);
+  console.log('🔍 Client lookup result:', client ? `Found client id: ${client.id}` : 'Client not found');
 
   if (!client) {
     console.log('👤 Creating new client:', telegramUser.id);
@@ -150,11 +160,13 @@ async function getOrCreateClient(telegramUser) {
       const adminMessage = `👤 <b>Новый пользователь!</b>\n\nИмя: ${name}${lastName}\n👤 username: ${username}`;
 
       console.log('📤 Sending new user notification to admin:', ADMIN_TELEGRAM_IDS[0]);
-      await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
-      console.log('✅ New user notification sent');
+      const result = await sendMessage(ADMIN_TELEGRAM_IDS[0], adminMessage, null, false);
+      console.log('✅ New user notification sent. Telegram API result:', JSON.stringify(result));
     } catch (error) {
       console.error('❌ Error sending new user notification:', error);
     }
+  } else {
+    console.log('ℹ️ Client already exists, skipping notification');
   }
 
   return client;
