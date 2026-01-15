@@ -130,6 +130,19 @@ const SlotsManager = () => {
     },
   });
 
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async () => {
+      return await api.deleteScheduleTemplate();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schedule_template"] });
+      toast({ title: "Шаблон удалён" });
+    },
+    onError: (error) => {
+      toast({ title: "Ошибка", description: error.message, variant: "destructive" });
+    },
+  });
+
   const applyTemplateMutation = useMutation({
     mutationFn: async (weeks: number) => {
       return await api.applyScheduleTemplate(weeks);

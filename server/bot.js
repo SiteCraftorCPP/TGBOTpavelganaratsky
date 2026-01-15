@@ -1553,6 +1553,17 @@ app.get('/api/schedule-template', async (req, res) => {
   }
 });
 
+// DELETE /api/schedule-template - Delete schedule template
+app.delete('/api/schedule-template', async (req, res) => {
+  try {
+    await db.query('DELETE FROM bot_settings WHERE key = $1', ['schedule_template']);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting schedule template:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // POST /api/schedule-template - Save schedule template from current week
 app.post('/api/schedule-template', async (req, res) => {
   try {

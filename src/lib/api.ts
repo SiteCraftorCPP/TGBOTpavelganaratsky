@@ -56,6 +56,7 @@ export const api = {
   // Schedule template
   getScheduleTemplate: () => apiRequest<{ days: Array<{ day: string; times: Array<{ time: string; available_formats: string }> }> }>('/schedule-template'),
   saveScheduleTemplate: () => apiRequest<{ success: boolean; template: any }>('/schedule-template', { method: 'POST' }),
+  deleteScheduleTemplate: () => apiRequest<void>('/schedule-template', { method: 'DELETE' }),
   applyScheduleTemplate: (weeks: number) => apiRequest<{ success: boolean; created: number }>('/schedule-template/apply', { method: 'POST', body: JSON.stringify({ weeks }) }),
 
   // Booking
