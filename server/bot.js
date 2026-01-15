@@ -1581,6 +1581,7 @@ app.post('/api/schedule-template', async (req, res) => {
     );
 
     console.log('📅 Found slots:', slots.rows.length);
+    console.log('📅 Slots by date:', slots.rows.map(s => `${s.date} ${s.time} (${s.status})`).join(', '));
 
     // Group by day of week (0 = Monday, 6 = Sunday)
     const weekDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -1600,6 +1601,8 @@ app.post('/api/schedule-template', async (req, res) => {
             : String(slot.date).split('T')[0];
         return slotDate === dateStr;
       });
+
+      console.log(`📅 ${weekDays[i]} (${dateStr}): ${daySlots.length} slots`);
 
       if (daySlots.length > 0) {
         template.days.push({
@@ -1681,13 +1684,13 @@ app.post('/api/schedule-template/apply', async (req, res) => {
             const timeStr = typeof timeSlot.time === 'string' ? timeSlot.time : String(timeSlot.time);
             const formats = timeSlot.available_formats || 'both';
             console.log(`📅 Creating slot: ${dateStr} ${timeStr} (${formats})`);
-            
+
             // Check if slot already exists
             const existingSlot = await db.query(
               'SELECT * FROM slots WHERE date = $1 AND time = $2',
               [dateStr, timeStr]
             );
-            
+
             if (existingSlot.rows.length > 0) {
               console.log(`ℹ️ Slot already exists: ${dateStr} ${timeStr}`);
               // Update available_formats if different
