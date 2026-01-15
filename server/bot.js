@@ -611,22 +611,77 @@ async function handleDiaryAdd(chatId, clientId) {
   await db.setSetting(`state_${chatId}`, { state: 'waiting_diary' });
 }
 
+// Helper function to parse setting value
+function parseSettingValue(setting) {
+  if (!setting) return '';
+  if (typeof setting.value === 'string') {
+    try {
+      const parsed = JSON.parse(setting.value);
+      return parsed.value || parsed.card_number || '';
+    } catch {
+      return setting.value;
+    }
+  }
+  return setting.value?.value || setting.value?.card_number || '';
+}
+
 // Handle payment
 async function handlePayment(chatId, clientId) {
-  // Get card number from settings
+  // Get all payment settings
+  const paymentLink = await db.getSetting('payment_link');
+  const eripPath = await db.getSetting('erip_path');
+  const accountNumber = await db.getSetting('account_number');
   const cardSetting = await db.getSetting('payment_card');
-  const cardNumber = (cardSetting && typeof cardSetting.value === 'string'
-    ? JSON.parse(cardSetting.value)
-    : cardSetting?.value)?.card_number || '5208130004581850';
 
-  // Send card number
-  await sendMessage(chatId, `<code>${cardNumber}</code>`);
+  const paymentLinkValue = parseSettingValue(paymentLink);
+  const eripPathValue = parseSettingValue(eripPath);
+  const accountNumberValue = parseSettingValue(accountNumber);
+  const cardNumber = parseSettingValue(cardSetting) || '5208130004581850';
 
-  // Send instructions
+  // Build payment message
+  let paymentMessage = '💳 <b>Способы оплаты:</b>\n\n';
+
+  const buttons = [];
+
+  // Online payment link
+  if (paymentLinkValue && paymentLinkValue.trim()) {
+    paymentMessage += `🔗 <b>Онлайн-оплата:</b>\n`;
+    paymentMessage += `Перейдите по ссылке для оплаты\n\n`;
+    buttons.push([{ text: '💳 Оплатить онлайн', url: paymentLinkValue }]);
+  }
+
+  // ERIP
+  if (eripPathValue && eripPathValue.trim()) {
+    paymentMessage += `📱 <b>Оплата через ЕРИП:</b>\n`;
+    const eripLines = eripPathValue.split('\n').filter(line => line.trim());
+    eripLines.forEach(line => {
+      paymentMessage += `${line.trim()}\n`;
+    });
+    paymentMessage += '\n';
+  }
+
+  // Bank account
+  if (accountNumberValue && accountNumberValue.trim()) {
+    paymentMessage += `🏦 <b>Банковский перевод:</b>\n`;
+    paymentMessage += `<code>${accountNumberValue}</code>\n\n`;
+  }
+
+  // Card number
+  if (cardNumber && cardNumber.trim()) {
+    paymentMessage += `💳 <b>Перевод на карту:</b>\n`;
+    paymentMessage += `<code>${cardNumber}</code>\n\n`;
+  }
+
+  paymentMessage += 'После оплаты пришлите скриншот в этот чат.';
+
+  // Add back button
+  buttons.push([{ text: '◀️ Назад', callback_data: 'main_menu' }]);
+
+  // Send payment information
   await sendMessage(
     chatId,
-    `Это номер карты, его можно удобно скопировать. Пришлите в этот диалог скриншот об оплате`,
-    { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    paymentMessage,
+    { inline_keyboard: buttons }
   );
 
   // Set state for waiting payment screenshot
