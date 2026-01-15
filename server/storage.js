@@ -5,6 +5,7 @@ const { createPayment } = require('./db');
 
 const STORAGE_DIR = process.env.STORAGE_DIR || path.join(__dirname, 'storage');
 const PAYMENTS_DIR = path.join(STORAGE_DIR, 'payments');
+const ABOUT_ME_DIR = path.join(STORAGE_DIR, 'about-me');
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://liftme.by';
 
 // Initialize storage directories
@@ -12,6 +13,7 @@ async function initStorage() {
   try {
     await fs.mkdir(STORAGE_DIR, { recursive: true });
     await fs.mkdir(PAYMENTS_DIR, { recursive: true });
+    await fs.mkdir(ABOUT_ME_DIR, { recursive: true });
     console.log('✓ Storage directories initialized');
   } catch (error) {
     console.error('Error initializing storage:', error);
@@ -72,6 +74,48 @@ async function deletePaymentScreenshot(screenshotUrl) {
   }
 }
 
+// Save about me photo
+async function saveAboutMePhoto(buffer, extension = 'jpg') {
+  try {
+    const filename = `photo.${extension}`;
+    const filePath = path.join(ABOUT_ME_DIR, filename);
+    
+    // Delete old photo if exists
+    try {
+      await fs.unlink(filePath);
+    } catch (e) {
+      // File might not exist, ignore
+    }
+    
+    // Save new photo
+    await fs.writeFile(filePath, buffer);
+    
+    // Generate public URL
+    const publicUrl = `${PUBLIC_URL}/storage/about-me/${filename}`;
+    
+    console.log('About me photo saved:', publicUrl);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error saving about me photo:', error);
+    return null;
+  }
+}
+
+// Delete about me photo
+async function deleteAboutMePhoto() {
+  try {
+    const files = await fs.readdir(ABOUT_ME_DIR);
+    for (const file of files) {
+      if (file.startsWith('photo.')) {
+        await fs.unlink(path.join(ABOUT_ME_DIR, file));
+        console.log('Deleted about me photo:', file);
+      }
+    }
+  } catch (error) {
+    console.log('Error deleting about me photo:', error);
+  }
+}
+
 // Cleanup old payments (older than 7 days)
 async function cleanupOldPayments() {
   try {
@@ -99,7 +143,10 @@ module.exports = {
   savePaymentScreenshot,
   deletePaymentScreenshot,
   deletePaymentFile: deletePaymentScreenshot, // Alias for backward compatibility
+  saveAboutMePhoto,
+  deleteAboutMePhoto,
   cleanupOldPayments,
   STORAGE_DIR,
   PAYMENTS_DIR,
+  ABOUT_ME_DIR,
 };

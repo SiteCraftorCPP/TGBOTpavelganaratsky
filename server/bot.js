@@ -1,11 +1,18 @@
 const express = require('express');
 const path = require('path');
+const multer = require('multer');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const db = require('./db');
-const { initStorage, savePaymentScreenshot } = require('./storage');
+const { initStorage, savePaymentScreenshot, saveAboutMePhoto, deleteAboutMePhoto } = require('./storage');
 
 const app = express();
 app.use(express.json());
+
+// Configure multer for file uploads
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 // CORS middleware for admin panel
 app.use((req, res, next) => {
@@ -140,6 +147,7 @@ function getMainMenuKeyboard(telegramId) {
       { text: '📒 Дневник терапии', callback_data: 'diary' },
       { text: '💳 Оплата', callback_data: 'payment' },
     ],
+    [{ text: '👤 Обо мне', callback_data: 'about_me' }],
     [{ text: '🆘 SOS', callback_data: 'sos' }],
   ];
 
@@ -704,6 +712,58 @@ async function handleSos(chatId, client) {
   await db.setSetting(`state_${chatId}`, { state: 'waiting_sos', client_id: client.id });
 }
 
+// Handle about me
+async function handleAboutMe(chatId, telegramId) {
+  try {
+    const textSetting = await db.getSetting('about_me_text');
+    const photoSetting = await db.getSetting('about_me_photo');
+    
+    const text = textSetting?.value?.value || textSetting?.value || '';
+    const photoUrl = photoSetting?.value?.photo_url || photoSetting?.value || null;
+
+    if (!text && !photoUrl) {
+      await sendMessage(
+        chatId,
+        'ℹ️ Информация "Обо мне" пока не заполнена.',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+      return;
+    }
+
+    // Send photo with caption if both exist
+    if (photoUrl && text) {
+      await sendPhoto(
+        chatId,
+        photoUrl,
+        text,
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+    } else if (photoUrl) {
+      // Only photo
+      await sendPhoto(
+        chatId,
+        photoUrl,
+        '',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+    } else {
+      // Only text
+      await sendMessage(
+        chatId,
+        `👤 <b>Обо мне</b>\n\n${text}`,
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+    }
+  } catch (error) {
+    console.error('Error in handleAboutMe:', error);
+    await sendMessage(
+      chatId,
+      '❌ Произошла ошибка при загрузке информации.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    );
+  }
+}
+
 // Handle free slots view
 async function handleFreeSlots(chatId, telegramId) {
   const slots = await getAvailableSlots();
@@ -948,6 +1008,11 @@ async function handleCallbackQuery(callbackQuery, client) {
 
   if (data === 'payment') {
     await handlePayment(chatId, client.id);
+    return;
+  }
+
+  if (data === 'about_me') {
+    await handleAboutMe(chatId, telegramId);
     return;
   }
 
@@ -1681,6 +1746,59 @@ app.get('/api/schedule-template', async (req, res) => {
     res.json(templateData || { days: [] });
   } catch (error) {
     console.error('Error fetching schedule template:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/about-me - Get about me information
+app.get('/api/about-me', async (req, res) => {
+  try {
+    const textSetting = await db.getSetting('about_me_text');
+    const photoSetting = await db.getSetting('about_me_photo');
+    
+    res.json({
+      text: textSetting?.value?.value || textSetting?.value || '',
+      photo_url: photoSetting?.value?.photo_url || photoSetting?.value || null
+    });
+  } catch (error) {
+    console.error('Error fetching about me:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /about-me - Save about me information
+app.put('/about-me', upload.single('photo'), async (req, res) => {
+  try {
+    const { text } = req.body;
+    let photoUrl = null;
+
+    // Handle photo upload
+    if (req.file) {
+      const extension = req.file.originalname.split('.').pop() || 'jpg';
+      photoUrl = await saveAboutMePhoto(req.file.buffer, extension);
+      
+      if (photoUrl) {
+        await db.setSetting('about_me_photo', { photo_url: photoUrl });
+      }
+    } else if (req.body.remove_photo === 'true') {
+      // Remove photo if requested
+      await deleteAboutMePhoto();
+      await db.query('DELETE FROM bot_settings WHERE key = $1', ['about_me_photo']);
+      photoUrl = null;
+    } else {
+      // Keep existing photo
+      const existingPhoto = await db.getSetting('about_me_photo');
+      photoUrl = existingPhoto?.value?.photo_url || existingPhoto?.value || null;
+    }
+
+    // Save text
+    if (text !== undefined) {
+      await db.setSetting('about_me_text', { value: text });
+    }
+
+    res.json({ success: true, text: text || '', photo_url: photoUrl });
+  } catch (error) {
+    console.error('Error saving about me:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

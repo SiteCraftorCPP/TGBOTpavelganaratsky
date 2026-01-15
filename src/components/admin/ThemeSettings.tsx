@@ -1,10 +1,28 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Sun, Moon } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Sun, Moon, Save, X, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 const ThemeSettings = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [aboutMeText, setAboutMeText] = useState("");
+  const [aboutMePhoto, setAboutMePhoto] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const queryClient = useQueryClient();
+
+  // Fetch about me settings
+  const { data: aboutMeSettings, isLoading: isLoadingAboutMe } = useQuery({
+    queryKey: ["about_me"],
+    queryFn: async () => {
+      return await api.getAboutMe();
+    },
+  });
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
@@ -14,10 +32,66 @@ const ThemeSettings = () => {
     document.documentElement.classList.toggle("dark", initialTheme === "dark");
   }, []);
 
+  useEffect(() => {
+    if (aboutMeSettings) {
+      setAboutMeText(aboutMeSettings.text || "");
+      setAboutMePhoto(aboutMeSettings.photo_url || null);
+    }
+  }, [aboutMeSettings]);
+
   const setThemeAndSave = (newTheme: "light" | "dark") => {
     setTheme(newTheme);
     localStorage.setItem("theme", newTheme);
     document.documentElement.classList.toggle("dark", newTheme === "dark");
+  };
+
+  const saveAboutMeMutation = useMutation({
+    mutationFn: async (data: { text: string; photo?: File }) => {
+      return await api.saveAboutMe(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["about_me"] });
+      setPhotoFile(null);
+      toast.success("Информация сохранена");
+    },
+    onError: () => {
+      toast.error("Ошибка сохранения");
+    },
+  });
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type.startsWith("image/")) {
+        setPhotoFile(file);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setAboutMePhoto(event.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        toast.error("Выберите изображение");
+      }
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setAboutMePhoto(null);
+    setPhotoFile(null);
+  };
+
+  const handleSaveAboutMe = () => {
+    if (!aboutMeText.trim() && !aboutMePhoto && !photoFile) {
+      toast.error("Заполните текст или загрузите фото");
+      return;
+    }
+    // If photo was removed (was set but now null and no new file), send remove_photo flag
+    const shouldRemovePhoto = aboutMeSettings?.photo_url && !aboutMePhoto && !photoFile;
+    saveAboutMeMutation.mutate({ 
+      text: aboutMeText, 
+      photo: photoFile || undefined,
+      remove_photo: shouldRemovePhoto 
+    });
   };
 
   return (
@@ -45,6 +119,76 @@ const ThemeSettings = () => {
               <span>Тёмная</span>
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Информация "Обо мне"</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Photo */}
+          <div className="space-y-2">
+            <Label>Фото</Label>
+            {aboutMePhoto ? (
+              <div className="relative inline-block">
+                <img
+                  src={aboutMePhoto}
+                  alt="Обо мне"
+                  className="h-32 w-32 object-cover rounded-lg border border-border"
+                />
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                  onClick={handleRemovePhoto}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="photo-upload" className="cursor-pointer">
+                  <Button variant="outline" type="button" asChild>
+                    <span>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Загрузить фото
+                    </span>
+                  </Button>
+                </Label>
+                <Input
+                  id="photo-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                  className="hidden"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Text */}
+          <div className="space-y-2">
+            <Label htmlFor="about-me-text">Текст "Обо мне"</Label>
+            <Textarea
+              id="about-me-text"
+              value={aboutMeText}
+              onChange={(e) => setAboutMeText(e.target.value)}
+              placeholder="Информация обо мне..."
+              rows={6}
+              disabled={isLoadingAboutMe || saveAboutMeMutation.isPending}
+            />
+          </div>
+
+          {/* Save Button */}
+          <Button
+            onClick={handleSaveAboutMe}
+            disabled={isLoadingAboutMe || saveAboutMeMutation.isPending}
+            className="w-full"
+          >
+            <Save className="h-4 w-4 mr-2" />
+            Сохранить
+          </Button>
         </CardContent>
       </Card>
     </div>

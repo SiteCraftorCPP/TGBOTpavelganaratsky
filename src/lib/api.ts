@@ -89,6 +89,30 @@ export const api = {
     });
   },
 
+  // About Me
+  getAboutMe: () => apiRequest<{ text: string; photo_url: string | null }>('/about-me'),
+  saveAboutMe: (data: { text: string; photo?: File; remove_photo?: boolean }) => {
+    const baseUrl = API_BASE_URL.replace('/api', '');
+    const formData = new FormData();
+    formData.append('text', data.text);
+    if (data.photo) {
+      formData.append('photo', data.photo);
+    }
+    if (data.remove_photo) {
+      formData.append('remove_photo', 'true');
+    }
+    return fetch(`${baseUrl}/about-me`, {
+      method: 'PUT',
+      body: formData
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `HTTP error! status: ${res.status}`);
+      }
+      return res.json();
+    });
+  },
+
   // Regular bookings
   createRegularBookings: (data: { clientId: string; date: string; time: string; weeks: number; format: string }) => {
     const baseUrl = API_BASE_URL.replace('/api', '');
