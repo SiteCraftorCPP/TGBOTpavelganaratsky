@@ -48,6 +48,14 @@ const ClientsList = () => {
   const [bookingTime, setBookingTime] = useState("");
   const [bookingFormat, setBookingFormat] = useState<"online" | "offline">("offline");
 
+  // Regular client dialog state
+  const [regularDialogOpen, setRegularDialogOpen] = useState(false);
+  const [regularClient, setRegularClient] = useState<Client | null>(null);
+  const [regularDate, setRegularDate] = useState<Date | undefined>(undefined);
+  const [regularTime, setRegularTime] = useState("");
+  const [regularWeeks, setRegularWeeks] = useState("4");
+  const [regularFormat, setRegularFormat] = useState<"online" | "offline">("offline");
+
   const { data: clients = [], isLoading } = useQuery({
     queryKey: ["clients"],
     queryFn: async () => {
@@ -91,6 +99,21 @@ const ClientsList = () => {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Ошибка назначения консультации");
+    },
+  });
+
+  const createRegularBookingsMutation = useMutation({
+    mutationFn: async ({ clientId, date, time, weeks, format }: { clientId: string; date: string; time: string; weeks: number; format: string }) => {
+      return await api.createRegularBookings({ clientId, date, time, weeks, format });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["slots"] });
+      toast.success(`Назначено ${data.created} консультаций, клиент уведомлён`);
+      setRegularDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Ошибка назначения регулярных консультаций");
     },
   });
 
@@ -258,6 +281,22 @@ const ClientsList = () => {
                     size="sm"
                     variant="outline"
                     className="gap-1"
+                    onClick={() => {
+                      setRegularClient(client);
+                      setRegularDate(undefined);
+                      setRegularTime("");
+                      setRegularWeeks("4");
+                      setRegularFormat("offline");
+                      setRegularDialogOpen(true);
+                    }}
+                  >
+                    <Calendar className="h-4 w-4" />
+                    <span className="hidden sm:inline">Регулярный</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
                     asChild
                   >
                     <a
@@ -358,6 +397,106 @@ const ClientsList = () => {
                   disabled={!bookingDate || !bookingTime || bookForClientMutation.isPending}
                 >
                   {bookForClientMutation.isPending ? "Назначаю..." : "Назначить"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Regular Client Dialog */}
+        <Dialog open={regularDialogOpen} onOpenChange={setRegularDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                Регулярный клиент
+                {regularClient && (
+                  <span className="block text-sm font-normal text-muted-foreground mt-1">
+                    {getClientName(regularClient)}
+                  </span>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Назначить еженедельные консультации на одно и то же время
+              </p>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Дата первой консультации</label>
+                <CalendarComponent
+                  mode="single"
+                  selected={regularDate}
+                  onSelect={setRegularDate}
+                  locale={ru}
+                  disabled={(date) => date < new Date()}
+                  className="rounded-md border pointer-events-auto"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Время</label>
+                <Select value={regularTime} onValueChange={setRegularTime}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите время" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {timeSlots.map((time) => (
+                      <SelectItem key={time} value={time}>
+                        {time}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Количество недель</label>
+                <Select value={regularWeeks} onValueChange={setRegularWeeks}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => (
+                      <SelectItem key={w} value={w.toString()}>
+                        {w} {w === 1 ? "неделя" : w < 5 ? "недели" : "недель"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Формат</label>
+                <Select value={regularFormat} onValueChange={(v) => setRegularFormat(v as "online" | "offline")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="offline">🏠 Очно</SelectItem>
+                    <SelectItem value="online">💻 Онлайн</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setRegularDialogOpen(false)}>
+                  Отмена
+                </Button>
+                <Button 
+                  onClick={() => {
+                    if (!regularClient || !regularDate || !regularTime) {
+                      toast.error("Выберите дату и время");
+                      return;
+                    }
+                    const dateStr = format(regularDate, "yyyy-MM-dd");
+                    createRegularBookingsMutation.mutate({
+                      clientId: regularClient.id,
+                      date: dateStr,
+                      time: regularTime,
+                      weeks: parseInt(regularWeeks),
+                      format: regularFormat
+                    });
+                  }}
+                  disabled={!regularDate || !regularTime || createRegularBookingsMutation.isPending}
+                >
+                  {createRegularBookingsMutation.isPending 
+                    ? "Назначаю..." 
+                    : `Назначить ${regularWeeks} ${parseInt(regularWeeks) === 1 ? "консультацию" : parseInt(regularWeeks) < 5 ? "консультации" : "консультаций"}`}
                 </Button>
               </div>
             </div>

@@ -88,4 +88,20 @@ export const api = {
       return res.json();
     });
   },
+
+  // Regular bookings
+  createRegularBookings: (data: { clientId: string; date: string; time: string; weeks: number; format: string }) => {
+    const baseUrl = API_BASE_URL.replace('/api', '');
+    return fetch(`${baseUrl}/create-regular-bookings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(async (res) => {
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `HTTP error! status: ${res.status}`);
+      }
+      return res.json();
+    });
+  },
 };

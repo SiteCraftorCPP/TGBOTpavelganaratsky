@@ -1183,6 +1183,116 @@ ${formatText}
   }
 });
 
+// Endpoint for creating regular bookings (weekly consultations)
+app.post('/create-regular-bookings', async (req, res) => {
+  try {
+    const { clientId, date, time, weeks = 4, format = 'offline' } = req.body;
+
+    if (!clientId || !date || !time) {
+      return res.status(400).json({ error: 'clientId, date, and time are required' });
+    }
+
+    // Get client info
+    const client = await db.getClientById(clientId);
+
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const firstDate = new Date(date);
+    firstDate.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Skip past dates
+    if (firstDate < today) {
+      return res.status(400).json({ error: 'First consultation date must be in the future' });
+    }
+
+    let createdCount = 0;
+    const errors = [];
+
+    // Create bookings for specified number of weeks
+    for (let week = 0; week < weeks; week++) {
+      const consultationDate = new Date(firstDate);
+      consultationDate.setDate(firstDate.getDate() + (week * 7));
+      const dateStr = consultationDate.toISOString().split('T')[0];
+
+      // Skip past dates
+      if (consultationDate < today) {
+        continue;
+      }
+
+      try {
+        // Check if slot exists
+        const existingSlotResult = await db.query(
+          'SELECT * FROM slots WHERE date = $1 AND time = $2',
+          [dateStr, time]
+        );
+        const existingSlot = existingSlotResult.rows[0];
+
+        let slotId;
+
+        if (existingSlot) {
+          // Check if slot is free
+          if (existingSlot.status !== 'free') {
+            errors.push(`${dateStr} ${time} - уже занято`);
+            continue;
+          }
+          slotId = existingSlot.id;
+        } else {
+          // Create new slot
+          const newSlot = await db.createSlot(dateStr, time, format === 'online' ? 'online' : 'offline');
+          if (!newSlot) {
+            errors.push(`${dateStr} ${time} - не удалось создать слот`);
+            continue;
+          }
+          slotId = newSlot.id;
+        }
+
+        // Book the slot
+        await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
+        await db.createBooking(clientId, slotId);
+        createdCount++;
+
+        // Send notification to client for first consultation only
+        if (week === 0) {
+          const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно';
+          const dateFormatted = formatDate(dateStr);
+          await sendMessage(
+            client.telegram_id,
+            `✅ <b>Вам назначена регулярная консультация!</b>\n\n📅 Первая консультация: ${dateFormatted} в ${formatTime(time)}\n${formatText}\n\nВсего назначено: ${weeks} ${weeks === 1 ? 'консультация' : weeks < 5 ? 'консультации' : 'консультаций'}\n\nНапоминания придут за 24 часа и за 1 час до каждой сессии.`,
+            null,
+            false
+          );
+        }
+      } catch (error) {
+        console.error(`Error creating booking for ${dateStr}:`, error);
+        errors.push(`${dateStr} ${time} - ${error.message}`);
+      }
+    }
+
+    if (createdCount === 0) {
+      return res.status(400).json({ 
+        error: 'Не удалось создать ни одной консультации',
+        errors 
+      });
+    }
+
+    // Notify admin
+    const name = client.first_name || 'Клиент';
+    const username = client.username ? `@${client.username}` : '';
+    await sendMessageToAllAdmins(
+      `📅 <b>Назначены регулярные консультации!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 Первая консультация: ${formatDate(date)} в ${formatTime(time)}\n${format === 'online' ? '💻 онлайн' : '🏠 очно'}\n\nВсего: ${weeks} ${weeks === 1 ? 'консультация' : weeks < 5 ? 'консультации' : 'консультаций'}\nСоздано: ${createdCount}`
+    );
+
+    res.json({ success: true, created: createdCount, errors: errors.length > 0 ? errors : undefined });
+  } catch (error) {
+    console.error('Error in create-regular-bookings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Endpoint for canceling booking from admin panel
 app.post('/cancel-booking-admin', async (req, res) => {
   try {
