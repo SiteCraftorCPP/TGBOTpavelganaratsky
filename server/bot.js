@@ -167,7 +167,7 @@ async function getOrCreateClient(telegramUser) {
       const username = client.username ? `@${client.username}` : 'нет username';
       const lastName = client.last_name ? ` ${client.last_name}` : '';
 
-      const adminMessage = `🎉 <b>Новый пользователь!</b>\n\n👤 username: ${username}\n✨ Имя: ${name}${lastName}`;
+      const adminMessage = `🎉 <b>Новый пользователь!</b>\n👤 username: ${username}\n✨ Имя: ${name}${lastName}`;
 
       console.log('📤 Sending new user notification to all admins');
       const results = await sendMessageToAllAdmins(adminMessage);
