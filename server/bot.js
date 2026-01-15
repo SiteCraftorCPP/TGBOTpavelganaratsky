@@ -1686,7 +1686,8 @@ app.post('/api/schedule-template/apply', async (req, res) => {
       const weekMonday = new Date(startMonday);
       weekMonday.setDate(startMonday.getDate() + (week * 7));
 
-      console.log(`📅 Processing week ${week + 1}, Monday: ${weekMonday.toISOString().split('T')[0]}`);
+      const weekMondayStr = weekMonday.toISOString().split('T')[0];
+      console.log(`📅 Processing week ${week + 1}, Monday: ${weekMondayStr} (day of week: ${weekMonday.getDay()})`);
 
       for (const dayTemplate of templateData.days) {
         const dayIndex = weekDays.indexOf(dayTemplate.day);
@@ -1702,9 +1703,11 @@ app.post('/api/schedule-template/apply', async (req, res) => {
 
         // Skip past dates
         if (slotDate < today) {
-          console.log(`⏭️ Skipping past date: ${dateStr}`);
+          console.log(`⏭️ Skipping past date: ${dateStr} (is ${slotDate < today ? 'past' : 'future'})`);
           continue;
         }
+
+        console.log(`📅 Processing ${dayTemplate.day} (${dateStr}) with ${dayTemplate.times.length} time slots`);
 
         for (const timeSlot of dayTemplate.times) {
           try {
