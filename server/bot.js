@@ -1659,7 +1659,7 @@ app.post('/api/schedule-template/apply', async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    
+
     // Calculate next Monday (that hasn't arrived yet)
     let daysUntilMonday;
     if (dayOfWeek === 0) {
@@ -1672,7 +1672,7 @@ app.post('/api/schedule-template/apply', async (req, res) => {
       // Today is Tuesday-Saturday, next Monday is (8 - dayOfWeek) days away
       daysUntilMonday = 8 - dayOfWeek;
     }
-    
+
     const startMonday = new Date(today);
     startMonday.setDate(today.getDate() + daysUntilMonday);
     startMonday.setHours(0, 0, 0, 0);
@@ -1712,29 +1712,36 @@ app.post('/api/schedule-template/apply', async (req, res) => {
             const formats = timeSlot.available_formats || 'both';
             console.log(`📅 Creating slot: ${dateStr} ${timeStr} (${formats})`);
 
-            // Check if slot already exists
+            // Check if slot already exists (including booked slots)
             const existingSlot = await db.query(
               'SELECT * FROM slots WHERE date = $1 AND time = $2',
               [dateStr, timeStr]
             );
 
             if (existingSlot.rows.length > 0) {
-              console.log(`ℹ️ Slot already exists: ${dateStr} ${timeStr}`);
-              // Update available_formats if different
-              if (existingSlot.rows[0].available_formats !== formats) {
-                await db.query(
-                  'UPDATE slots SET available_formats = $1 WHERE id = $2',
-                  [formats, existingSlot.rows[0].id]
-                );
-                console.log(`✅ Updated slot formats: ${dateStr} ${timeStr}`);
+              // Slot exists - only update formats if it's free
+              if (existingSlot.rows[0].status === 'free') {
+                if (existingSlot.rows[0].available_formats !== formats) {
+                  await db.query(
+                    'UPDATE slots SET available_formats = $1 WHERE id = $2',
+                    [formats, existingSlot.rows[0].id]
+                  );
+                  console.log(`✅ Updated slot formats: ${dateStr} ${timeStr}`);
+                } else {
+                  console.log(`ℹ️ Slot already exists (free): ${dateStr} ${timeStr}`);
+                }
+              } else {
+                console.log(`ℹ️ Slot already exists (booked): ${dateStr} ${timeStr}`);
               }
             } else {
+              // Slot doesn't exist - create it
               const slot = await db.createSlot(dateStr, timeStr, formats);
               if (slot) {
                 createdCount++;
-                console.log(`✅ Slot created: ${slot.id}`);
+                console.log(`✅ Slot created: ${slot.id} - ${dateStr} ${timeStr}`);
               } else {
-                console.log(`⚠️ Failed to create slot: ${dateStr} ${timeStr}`);
+                // createSlot returns null on conflict, but we already checked, so this shouldn't happen
+                console.log(`⚠️ Failed to create slot (conflict?): ${dateStr} ${timeStr}`);
               }
             }
           } catch (error) {
