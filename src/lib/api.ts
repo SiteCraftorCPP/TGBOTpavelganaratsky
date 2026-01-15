@@ -53,6 +53,11 @@ export const api = {
   // Diary
   getDiaryEntries: () => apiRequest<any[]>('/diary'),
 
+  // Schedule template
+  getScheduleTemplate: () => apiRequest<{ days: Array<{ day: string; times: Array<{ time: string; available_formats: string }> }> }>('/schedule-template'),
+  saveScheduleTemplate: () => apiRequest<{ success: boolean; template: any }>('/schedule-template', { method: 'POST' }),
+  applyScheduleTemplate: (weeks: number) => apiRequest<{ success: boolean; created: number }>('/schedule-template/apply', { method: 'POST', body: JSON.stringify({ weeks }) }),
+
   // Booking
   cancelBooking: (slotId: string) => {
     const baseUrl = API_BASE_URL.replace('/api', '');

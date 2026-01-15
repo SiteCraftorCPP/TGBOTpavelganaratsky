@@ -1539,6 +1539,128 @@ app.put('/api/payment-settings', async (req, res) => {
   }
 });
 
+// GET /api/schedule-template - Get schedule template
+app.get('/api/schedule-template', async (req, res) => {
+  try {
+    const template = await db.getSetting('schedule_template');
+    const templateData = template && typeof template.value === 'string'
+      ? JSON.parse(template.value)
+      : template?.value;
+    res.json(templateData || { days: [] });
+  } catch (error) {
+    console.error('Error fetching schedule template:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/schedule-template - Save schedule template from current week
+app.post('/api/schedule-template', async (req, res) => {
+  try {
+    // Get all free slots from current week (Monday to Sunday)
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    monday.setHours(0, 0, 0, 0);
+    
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+
+    const slots = await db.query(
+      `SELECT * FROM slots 
+       WHERE date >= $1 AND date <= $2 AND status = 'free'
+       ORDER BY date, time`,
+      [monday.toISOString().split('T')[0], sunday.toISOString().split('T')[0]]
+    );
+
+    // Group by day of week (0 = Monday, 6 = Sunday)
+    const weekDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const template = { days: [] };
+
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + i);
+      const dateStr = dayDate.toISOString().split('T')[0];
+      
+      const daySlots = slots.rows.filter(slot => slot.date === dateStr);
+      if (daySlots.length > 0) {
+        template.days.push({
+          day: weekDays[i],
+          times: daySlots.map(slot => ({
+            time: slot.time.slice(0, 5),
+            available_formats: slot.available_formats || 'both'
+          }))
+        });
+      }
+    }
+
+    await db.setSetting('schedule_template', template);
+    res.json({ success: true, template });
+  } catch (error) {
+    console.error('Error saving schedule template:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/schedule-template/apply - Apply template to weeks
+app.post('/api/schedule-template/apply', async (req, res) => {
+  try {
+    const { weeks = 1 } = req.body;
+
+    const template = await db.getSetting('schedule_template');
+    const templateData = template && typeof template.value === 'string'
+      ? JSON.parse(template.value)
+      : template?.value;
+
+    if (!templateData || !templateData.days || templateData.days.length === 0) {
+      return res.status(400).json({ error: 'No template saved' });
+    }
+
+    const weekDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const currentMonday = new Date(today);
+    currentMonday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    currentMonday.setHours(0, 0, 0, 0);
+
+    let createdCount = 0;
+
+    // Apply template for specified number of weeks
+    for (let week = 0; week < weeks; week++) {
+      const weekMonday = new Date(currentMonday);
+      weekMonday.setDate(currentMonday.getDate() + (week * 7));
+
+      for (const dayTemplate of templateData.days) {
+        const dayIndex = weekDays.indexOf(dayTemplate.day);
+        if (dayIndex === -1) continue;
+
+        const slotDate = new Date(weekMonday);
+        slotDate.setDate(weekMonday.getDate() + dayIndex);
+        const dateStr = slotDate.toISOString().split('T')[0];
+
+        // Skip past dates
+        if (slotDate < today) continue;
+
+        for (const timeSlot of dayTemplate.times) {
+          try {
+            const slot = await db.createSlot(dateStr, timeSlot.time, timeSlot.available_formats || 'both');
+            if (slot) createdCount++;
+          } catch (error) {
+            // Slot might already exist, ignore
+            console.log(`Slot already exists: ${dateStr} ${timeSlot.time}`);
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, created: createdCount });
+  } catch (error) {
+    console.error('Error applying schedule template:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/diary - Get all diary entries
 app.get('/api/diary', async (req, res) => {
   try {

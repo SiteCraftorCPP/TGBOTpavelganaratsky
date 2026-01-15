@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, CalendarIcon, Clock, ExternalLink } from "lucide-react";
+import { Plus, Trash2, CalendarIcon, Clock, ExternalLink, RotateCcw, FileText, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -31,6 +31,21 @@ interface Slot {
   } | null;
 }
 
+interface TemplateDay {
+  day: string;
+  times: Array<{ time: string; available_formats: string }>;
+}
+
+const weekDaysNames: Record<string, string> = {
+  monday: "Понедельник",
+  tuesday: "Вторник",
+  wednesday: "Среда",
+  thursday: "Четверг",
+  friday: "Пятница",
+  saturday: "Суббота",
+  sunday: "Воскресенье",
+};
+
 const SlotsManager = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -38,12 +53,12 @@ const SlotsManager = () => {
   const [newSlotTime, setNewSlotTime] = useState("10:00");
   const [newSlotFormats, setNewSlotFormats] = useState<"offline" | "online" | "both">("both");
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [weeksToApply, setWeeksToApply] = useState("1");
 
   const { data: slots = [], isLoading } = useQuery({
     queryKey: ["slots"],
     queryFn: async () => {
       const data = await api.getSlots();
-      // Transform data to match expected format
       return data.map((slot: any) => ({
         ...slot,
         clients: slot.first_name || slot.last_name || slot.username ? {
@@ -53,6 +68,13 @@ const SlotsManager = () => {
           telegram_id: slot.telegram_id,
         } : null,
       })) as Slot[];
+    },
+  });
+
+  const { data: template, isLoading: isLoadingTemplate } = useQuery({
+    queryKey: ["schedule_template"],
+    queryFn: async () => {
+      return await api.getScheduleTemplate();
     },
   });
 
@@ -95,10 +117,45 @@ const SlotsManager = () => {
     },
   });
 
+  const saveTemplateMutation = useMutation({
+    mutationFn: async () => {
+      return await api.saveScheduleTemplate();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schedule_template"] });
+      toast({ title: "Шаблон сохранён", description: "Текущая неделя сохранена как шаблон" });
+    },
+    onError: (error) => {
+      toast({ title: "Ошибка", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const applyTemplateMutation = useMutation({
+    mutationFn: async (weeks: number) => {
+      return await api.applyScheduleTemplate(weeks);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["slots"] });
+      toast({ title: "Шаблон применён", description: `Создано слотов: ${data.created}` });
+    },
+    onError: (error) => {
+      toast({ title: "Ошибка", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleCreateSlot = () => {
     if (!selectedDate) return;
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     createSlotMutation.mutate({ date: dateStr, time: newSlotTime, available_formats: newSlotFormats });
+  };
+
+  const handleApplyTemplate = () => {
+    const weeks = parseInt(weeksToApply);
+    if (weeks < 1) {
+      toast({ title: "Ошибка", description: "Количество недель должно быть не менее 1", variant: "destructive" });
+      return;
+    }
+    applyTemplateMutation.mutate(weeks);
   };
 
   const timeOptions = [];
@@ -115,83 +172,154 @@ const SlotsManager = () => {
   }, {} as Record<string, Slot[]>);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      {/* Create Slot */}
+    <div className="space-y-6">
+      {/* Top Row: Add Slot and Regular Schedule */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Add Slot */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Добавить слот
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Дата</Label>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {selectedDate ? format(selectedDate, "PPP", { locale: ru }) : "Выберите дату"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start" side="bottom" collisionPadding={8}>
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => {
+                      setSelectedDate(date);
+                      setCalendarOpen(false);
+                    }}
+                    locale={ru}
+                    disabled={(date) => date < new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div>
+              <Label>Время</Label>
+              <Select value={newSlotTime} onValueChange={setNewSlotTime}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {timeOptions.map((time) => (
+                    <SelectItem key={time} value={time}>
+                      {time}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Формат консультации</Label>
+              <Select value={newSlotFormats} onValueChange={(v) => setNewSlotFormats(v as "offline" | "online" | "both")}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="both">🏠💻 Очно и онлайн</SelectItem>
+                  <SelectItem value="offline">🏠 Только очно</SelectItem>
+                  <SelectItem value="online">💻 Только онлайн</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button 
+              onClick={handleCreateSlot} 
+              className="w-full" 
+              disabled={!selectedDate || createSlotMutation.isPending}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Создать слот
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Regular Schedule */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5" />
+              Регулярное расписание
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Сохраните текущую неделю как шаблон и применяйте его на следующие недели.
+            </p>
+
+            <Button
+              onClick={() => saveTemplateMutation.mutate()}
+              variant="outline"
+              className="w-full"
+              disabled={saveTemplateMutation.isPending}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Сохранить текущую неделю как шаблон
+            </Button>
+
+            {isLoadingTemplate ? (
+              <p className="text-sm text-muted-foreground">Загрузка шаблона...</p>
+            ) : template && template.days && template.days.length > 0 ? (
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Сохранённый шаблон:</Label>
+                <div className="space-y-1">
+                  {template.days.map((day: TemplateDay) => (
+                    <div key={day.day} className="text-sm">
+                      <span className="font-medium">{weekDaysNames[day.day]}:</span>{" "}
+                      {day.times.map(t => t.time).join(", ")}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Нет сохранённого шаблона</p>
+            )}
+
+            <div>
+              <Label>Количество недель для применения</Label>
+              <Select value={weeksToApply} onValueChange={setWeeksToApply}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => (
+                    <SelectItem key={w} value={w.toString()}>
+                      {w} {w === 1 ? "неделя" : w < 5 ? "недели" : "недель"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button
+              onClick={handleApplyTemplate}
+              className="w-full"
+              disabled={applyTemplateMutation.isPending || !template || !template.days || template.days.length === 0}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Применить шаблон
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Schedule List - Full Width */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plus className="h-5 w-5" />
-            Добавить слот
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Дата</Label>
-            <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {selectedDate ? format(selectedDate, "PPP", { locale: ru }) : "Выберите дату"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start" side="bottom" collisionPadding={8}>
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(date) => {
-                    setSelectedDate(date);
-                    setCalendarOpen(false);
-                  }}
-                  locale={ru}
-                  disabled={(date) => date < new Date()}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          <div>
-            <Label>Время</Label>
-            <Select value={newSlotTime} onValueChange={setNewSlotTime}>
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {timeOptions.map((time) => (
-                  <SelectItem key={time} value={time}>
-                    {time}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>Формат консультации</Label>
-            <Select value={newSlotFormats} onValueChange={(v) => setNewSlotFormats(v as "offline" | "online" | "both")}>
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="both">🏠💻 Очно и онлайн</SelectItem>
-                <SelectItem value="offline">🏠 Только очно</SelectItem>
-                <SelectItem value="online">💻 Только онлайн</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Button 
-            onClick={handleCreateSlot} 
-            className="w-full" 
-            disabled={!selectedDate || createSlotMutation.isPending}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Создать слот
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Slots List */}
-      <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5" />
