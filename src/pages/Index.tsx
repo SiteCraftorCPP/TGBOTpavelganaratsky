@@ -6,7 +6,7 @@ import ClientsList from "@/components/admin/ClientsList";
 import SosRequests from "@/components/admin/SosRequests";
 import ThemeSettings from "@/components/admin/ThemeSettings";
 import PaymentScreenshots from "@/components/admin/PaymentScreenshots";
-import liftmeLogo from "@/assets/liftme-logo.jpg";
+import nuestrosRobotsLogo from "@/assets/nuestros-robots-logo.png";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("slots");
@@ -18,11 +18,11 @@ const Index = () => {
         <div className="w-full px-4 sm:px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl overflow-hidden flex items-center justify-center">
-              <img src={liftmeLogo} alt="LIFTme-Bot" className="h-full w-full object-cover" />
+              <img src={nuestrosRobotsLogo} alt="Nuestros Robots" className="h-full w-full object-cover" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-foreground">LIFTme-Bot</h1>
-              <p className="text-sm text-muted-foreground">Твой Ассистент</p>
+              <h1 className="text-xl font-semibold text-foreground">Nuestros Robots</h1>
+              <p className="text-sm text-muted-foreground">Ассистент психолога</p>
             </div>
           </div>
         </div>
