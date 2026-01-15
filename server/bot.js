@@ -1659,16 +1659,25 @@ app.post('/api/schedule-template/apply', async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dayOfWeek = today.getDay();
+    
+    // Calculate current week's Monday
     const currentMonday = new Date(today);
     currentMonday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
     currentMonday.setHours(0, 0, 0, 0);
+    
+    // Start from next Monday (always apply to full weeks starting from next Monday)
+    const startMonday = new Date(currentMonday);
+    startMonday.setDate(currentMonday.getDate() + 7);
+    startMonday.setHours(0, 0, 0, 0);
+
+    console.log(`📅 Today: ${today.toISOString().split('T')[0]}, Current week Monday: ${currentMonday.toISOString().split('T')[0]}, Start applying from: ${startMonday.toISOString().split('T')[0]}`);
 
     let createdCount = 0;
 
-    // Apply template for specified number of weeks (start from current week)
+    // Apply template for specified number of weeks (always start from next Monday)
     for (let week = 0; week < weeks; week++) {
-      const weekMonday = new Date(currentMonday);
-      weekMonday.setDate(currentMonday.getDate() + (week * 7));
+      const weekMonday = new Date(startMonday);
+      weekMonday.setDate(startMonday.getDate() + (week * 7));
 
       console.log(`📅 Processing week ${week + 1}, Monday: ${weekMonday.toISOString().split('T')[0]}`);
 
