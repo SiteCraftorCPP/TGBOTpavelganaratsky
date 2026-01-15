@@ -1659,12 +1659,12 @@ app.post('/api/schedule-template/apply', async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-
-    // Calculate next Monday (that hasn't arrived yet)
+    
+    // Calculate next Monday (that hasn't arrived yet) - ALWAYS start from next week
     let daysUntilMonday;
     if (dayOfWeek === 0) {
-      // Today is Sunday, next Monday is tomorrow (1 day)
-      daysUntilMonday = 1;
+      // Today is Sunday, next Monday is tomorrow (1 day) - but we want NEXT week, so +8
+      daysUntilMonday = 8;
     } else if (dayOfWeek === 1) {
       // Today is Monday, next Monday is next week (7 days)
       daysUntilMonday = 7;
@@ -1672,12 +1672,13 @@ app.post('/api/schedule-template/apply', async (req, res) => {
       // Today is Tuesday-Saturday, next Monday is (8 - dayOfWeek) days away
       daysUntilMonday = 8 - dayOfWeek;
     }
-
+    
     const startMonday = new Date(today);
     startMonday.setDate(today.getDate() + daysUntilMonday);
     startMonday.setHours(0, 0, 0, 0);
 
-    console.log(`📅 Today: ${today.toISOString().split('T')[0]} (day of week: ${dayOfWeek}), Next Monday: ${startMonday.toISOString().split('T')[0]}`);
+    const startMondayStr = startMonday.toISOString().split('T')[0];
+    console.log(`📅 Today: ${today.toISOString().split('T')[0]} (day of week: ${dayOfWeek}), Next Monday for template: ${startMondayStr}`);
 
     let createdCount = 0;
 
