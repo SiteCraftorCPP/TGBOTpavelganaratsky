@@ -141,14 +141,20 @@ async function getOrCreateClient(telegramUser) {
 }
 
 async function getAvailableSlots() {
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const currentTime = now.toTimeString().slice(0, 5); // HH:MM
   
   const { rows } = await pool.query(
     `SELECT * FROM slots 
-     WHERE status = 'free' AND date >= $1
+     WHERE status = 'free' 
+     AND (
+       date > $1::date 
+       OR (date = $1::date AND time::text >= $2)
+     )
      ORDER BY date ASC, time ASC
      LIMIT 10`,
-    [today]
+    [today, currentTime]
   );
 
   return rows;

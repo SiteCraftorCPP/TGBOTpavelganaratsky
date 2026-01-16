@@ -86,25 +86,48 @@ async function getAllClients() {
 
 // Slot operations
 async function getAvailableSlots(limit = 30) {
-  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const currentTime = now.toTimeString().slice(0, 5); // HH:MM
+  
   const result = await query(
     `SELECT * FROM slots
-     WHERE status = 'free' AND date >= $1
+     WHERE status = 'free' 
+     AND (
+       date > $1::date 
+       OR (date = $1::date AND time::text >= $2)
+     )
      ORDER BY date ASC, time ASC
-     LIMIT $2`,
-    [today, limit]
+     LIMIT $3`,
+    [today, currentTime, limit]
   );
   return result.rows;
 }
 
 async function getSlotsForDate(date) {
-  const today = new Date().toISOString().split('T')[0];
-  const result = await query(
-    `SELECT * FROM slots
-     WHERE status = 'free' AND date = $1 AND date >= $2
-     ORDER BY time ASC`,
-    [date, today]
-  );
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const currentTime = now.toTimeString().slice(0, 5); // HH:MM
+  const slotDate = typeof date === 'string' ? date.split('T')[0] : (date instanceof Date ? date.toISOString().split('T')[0] : String(date));
+  
+  let result;
+  if (slotDate === today) {
+    // For today, filter by time - only show slots that haven't passed yet
+    result = await query(
+      `SELECT * FROM slots
+       WHERE status = 'free' AND date = $1::date AND time::text >= $2
+       ORDER BY time ASC`,
+      [date, currentTime]
+    );
+  } else {
+    // For future dates, no time filtering needed
+    result = await query(
+      `SELECT * FROM slots
+       WHERE status = 'free' AND date = $1::date AND date >= $2::date
+       ORDER BY time ASC`,
+      [date, today]
+    );
+  }
   return result.rows;
 }
 

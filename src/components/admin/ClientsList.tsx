@@ -357,7 +357,13 @@ const ClientsList = () => {
                   selected={bookingDate}
                   onSelect={setBookingDate}
                   locale={ru}
-                  disabled={(date) => date < new Date()}
+                  disabled={(date) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const selectedDate = new Date(date);
+                    selectedDate.setHours(0, 0, 0, 0);
+                    return selectedDate < today;
+                  }}
                   className="rounded-md border pointer-events-auto"
                 />
               </div>
@@ -427,7 +433,13 @@ const ClientsList = () => {
                   selected={regularDate}
                   onSelect={setRegularDate}
                   locale={ru}
-                  disabled={(date) => date < new Date()}
+                  disabled={(date) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const selectedDate = new Date(date);
+                    selectedDate.setHours(0, 0, 0, 0);
+                    return selectedDate < today;
+                  }}
                   className="rounded-md border pointer-events-auto"
                 />
               </div>

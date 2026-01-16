@@ -183,7 +183,9 @@ async function getOrCreateClient(telegramUser: TelegramUser): Promise<{
 
 // Get available slots for booking
 async function getAvailableSlots() {
-  const today = new Date().toISOString().split('T')[0]
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
+  const currentTime = now.toTimeString().slice(0, 5) // HH:MM
   
   const { data: slots, error } = await supabase
     .from('slots')
@@ -192,14 +194,24 @@ async function getAvailableSlots() {
     .gte('date', today)
     .order('date', { ascending: true })
     .order('time', { ascending: true })
-    .limit(30)
+    .limit(100)
 
   if (error) {
     console.error('Error fetching slots:', error)
     return []
   }
 
-  return slots || []
+  // Filter out past time slots for today
+  const filteredSlots = (slots || []).filter(slot => {
+    const slotDate = typeof slot.date === 'string' ? slot.date.split('T')[0] : String(slot.date)
+    if (slotDate === today) {
+      const slotTime = typeof slot.time === 'string' ? slot.time.slice(0, 5) : String(slot.time).slice(0, 5)
+      return slotTime >= currentTime
+    }
+    return true // Future dates are always valid
+  })
+
+  return filteredSlots.slice(0, 30)
 }
 
 // Get unique dates from available slots
@@ -211,7 +223,10 @@ async function getAvailableDates() {
 
 // Get slots for a specific date
 async function getSlotsForDate(date: string) {
-  const today = new Date().toISOString().split('T')[0]
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
+  const currentTime = now.toTimeString().slice(0, 5) // HH:MM
+  const slotDate = typeof date === 'string' ? date.split('T')[0] : String(date)
   
   const { data: slots, error } = await supabase
     .from('slots')
@@ -224,6 +239,14 @@ async function getSlotsForDate(date: string) {
   if (error) {
     console.error('Error fetching slots for date:', error)
     return []
+  }
+
+  // Filter out past time slots for today
+  if (slotDate === today) {
+    return (slots || []).filter(slot => {
+      const slotTime = typeof slot.time === 'string' ? slot.time.slice(0, 5) : String(slot.time).slice(0, 5)
+      return slotTime >= currentTime
+    })
   }
 
   return slots || []
