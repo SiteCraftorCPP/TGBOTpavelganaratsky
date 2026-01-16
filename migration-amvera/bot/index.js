@@ -52,6 +52,29 @@ async function sendMessage(chatId, text, replyMarkup) {
   return result;
 }
 
+async function sendPhoto(chatId, photoUrl, caption, replyMarkup) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  const body = {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: 'HTML',
+  };
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const result = await response.json();
+  console.log('sendPhoto result:', result);
+  return result;
+}
+
 async function answerCallbackQuery(callbackQueryId, text) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`;
   await fetch(url, {
@@ -304,6 +327,7 @@ function getMainMenuKeyboard(telegramId) {
       { text: '📒 Дневник терапии', callback_data: 'diary' },
       { text: '💳 Оплата', callback_data: 'payment' },
     ],
+    [{ text: '👤 Обо мне', callback_data: 'about_me' }],
     [{ text: '🆘 SOS', callback_data: 'sos' }],
   ];
 
@@ -472,6 +496,65 @@ async function handleSos(chatId, client) {
   setState(chatId, { state: 'waiting_sos', client_id: client.id });
 }
 
+async function handleAboutMe(chatId, telegramId) {
+  try {
+    // Get about_me_text from bot_settings
+    const { rows: textRows } = await pool.query(
+      "SELECT value FROM bot_settings WHERE key = 'about_me_text'"
+    );
+    const textSetting = textRows.length > 0 ? textRows[0].value : null;
+    const text = textSetting?.value || '';
+
+    // Get about_me_photo from bot_settings
+    const { rows: photoRows } = await pool.query(
+      "SELECT value FROM bot_settings WHERE key = 'about_me_photo'"
+    );
+    const photoSetting = photoRows.length > 0 ? photoRows[0].value : null;
+    const photoUrl = photoSetting?.photo_url || null;
+
+    if (!text && !photoUrl) {
+      await sendMessage(
+        chatId,
+        'ℹ️ Информация "Обо мне" пока не заполнена.',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+      return;
+    }
+
+    // Send photo with caption if both exist
+    if (photoUrl && text) {
+      await sendPhoto(
+        chatId,
+        photoUrl,
+        text,
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+    } else if (photoUrl) {
+      // Only photo
+      await sendPhoto(
+        chatId,
+        photoUrl,
+        '',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+    } else {
+      // Only text
+      await sendMessage(
+        chatId,
+        `👤 <b>Обо мне</b>\n\n${text}`,
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+    }
+  } catch (error) {
+    console.error('Error in handleAboutMe:', error);
+    await sendMessage(
+      chatId,
+      '❌ Произошла ошибка при загрузке информации.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    );
+  }
+}
+
 async function handleAdminPanel(chatId, telegramId) {
   if (!isAdmin(telegramId)) {
     await sendMessage(chatId, '⛔ У вас нет доступа к админ-панели.');
@@ -600,6 +683,11 @@ async function handleCallbackQuery(callbackQuery, client) {
 
   if (data === 'payment') {
     await handlePayment(chatId, telegramId);
+    return;
+  }
+
+  if (data === 'about_me') {
+    await handleAboutMe(chatId, telegramId);
     return;
   }
 

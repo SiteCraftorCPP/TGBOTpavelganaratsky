@@ -211,11 +211,14 @@ async function getAvailableDates() {
 
 // Get slots for a specific date
 async function getSlotsForDate(date: string) {
+  const today = new Date().toISOString().split('T')[0]
+  
   const { data: slots, error } = await supabase
     .from('slots')
     .select('*')
     .eq('status', 'free')
     .eq('date', date)
+    .gte('date', today)
     .order('time', { ascending: true })
 
   if (error) {
@@ -269,6 +272,26 @@ async function bookSlot(clientId: string, slotId: string, format: string = 'offl
     .single()
 
   if (!slot) return false
+
+  // Check if slot date is in the past
+  const today = new Date().toISOString().split('T')[0]
+  const slotDate = typeof slot.date === 'string' ? slot.date.split('T')[0] : String(slot.date)
+  
+  if (slotDate < today) {
+    console.log('❌ Cannot book slot in the past:', slotDate)
+    return false
+  }
+
+  // Check if slot is today but time has passed
+  if (slotDate === today) {
+    const now = new Date()
+    const currentTime = now.toTimeString().slice(0, 5) // HH:MM
+    const slotTime = typeof slot.time === 'string' ? slot.time.slice(0, 5) : String(slot.time).slice(0, 5)
+    if (slotTime < currentTime) {
+      console.log('❌ Cannot book slot - time has passed:', slotTime)
+      return false
+    }
+  }
 
   // Start transaction: update slot and create booking
   const { error: slotError } = await supabase
@@ -472,6 +495,7 @@ function getMainMenuKeyboard(telegramId: number) {
       { text: '📒 Дневник терапии', callback_data: 'diary' },
       { text: '💳 Оплата', callback_data: 'payment' },
     ],
+    [{ text: '👤 Обо мне', callback_data: 'about_me' }],
     [{ text: '🆘 SOS', callback_data: 'sos' }],
   ]
 
@@ -774,6 +798,67 @@ async function handleSos(chatId: number, client: { id: string; first_name?: stri
     }, { onConflict: 'key' })
 }
 
+// Handle about me
+async function handleAboutMe(chatId: number, telegramId: number) {
+  try {
+    const { data: textSetting } = await supabase
+      .from('bot_settings')
+      .select('value')
+      .eq('key', 'about_me_text')
+      .maybeSingle()
+    
+    const { data: photoSetting } = await supabase
+      .from('bot_settings')
+      .select('value')
+      .eq('key', 'about_me_photo')
+      .maybeSingle()
+    
+    const text = (textSetting?.value as { value?: string })?.value || ''
+    const photoUrl = (photoSetting?.value as { photo_url?: string })?.photo_url || null
+
+    if (!text && !photoUrl) {
+      await sendMessage(
+        chatId,
+        'ℹ️ Информация "Обо мне" пока не заполнена.',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      )
+      return
+    }
+
+    // Send photo with caption if both exist
+    if (photoUrl && text) {
+      await sendPhoto(
+        chatId,
+        photoUrl,
+        text,
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      )
+    } else if (photoUrl) {
+      // Only photo
+      await sendPhoto(
+        chatId,
+        photoUrl,
+        '',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      )
+    } else {
+      // Only text
+      await sendMessage(
+        chatId,
+        `👤 <b>Обо мне</b>\n\n${text}`,
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      )
+    }
+  } catch (error) {
+    console.error('Error in handleAboutMe:', error)
+    await sendMessage(
+      chatId,
+      '❌ Произошла ошибка при загрузке информации.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    )
+  }
+}
+
 // Get current state
 async function getState(chatId: number) {
   const { data } = await supabase
@@ -1015,6 +1100,11 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, client:
 
   if (data === 'payment') {
     await handlePayment(chatId, client.id)
+    return
+  }
+
+  if (data === 'about_me') {
+    await handleAboutMe(chatId, telegramId)
     return
   }
 

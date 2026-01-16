@@ -281,6 +281,28 @@ async function bookSlot(clientId, slotId, format = 'offline') {
       return false;
     }
 
+    // Check if slot date is in the past
+    const today = new Date().toISOString().split('T')[0];
+    const slotDate = slot.date instanceof Date 
+      ? slot.date.toISOString().split('T')[0] 
+      : (typeof slot.date === 'string' ? slot.date.split('T')[0] : String(slot.date));
+    
+    if (slotDate < today) {
+      console.log('❌ Cannot book slot in the past:', slotDate);
+      return false;
+    }
+
+    // Check if slot is today but time has passed
+    if (slotDate === today) {
+      const now = new Date();
+      const currentTime = now.toTimeString().slice(0, 5); // HH:MM
+      const slotTime = typeof slot.time === 'string' ? slot.time.slice(0, 5) : String(slot.time).slice(0, 5);
+      if (slotTime < currentTime) {
+        console.log('❌ Cannot book slot - time has passed:', slotTime);
+        return false;
+      }
+    }
+
     console.log('✅ Slot found:', slot);
     await db.updateSlot(slotId, { status: 'booked', client_id: clientId, format });
     console.log('✅ Slot updated');
@@ -1264,6 +1286,24 @@ app.post('/book-for-client', async (req, res) => {
 
     if (!clientId || !date || !time) {
       return res.status(400).json({ error: 'clientId, date, and time are required' });
+    }
+
+    // Check if date is in the past
+    const today = new Date().toISOString().split('T')[0];
+    const bookingDate = typeof date === 'string' ? date.split('T')[0] : String(date);
+    
+    if (bookingDate < today) {
+      return res.status(400).json({ error: 'Нельзя записаться на дату из прошлого' });
+    }
+
+    // Check if date is today but time has passed
+    if (bookingDate === today) {
+      const now = new Date();
+      const currentTime = now.toTimeString().slice(0, 5); // HH:MM
+      const bookingTime = typeof time === 'string' ? time.slice(0, 5) : String(time).slice(0, 5);
+      if (bookingTime < currentTime) {
+        return res.status(400).json({ error: 'Нельзя записаться на время, которое уже прошло' });
+      }
     }
 
     // Get client info

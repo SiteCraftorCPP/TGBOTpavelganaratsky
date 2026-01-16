@@ -98,11 +98,12 @@ async function getAvailableSlots(limit = 30) {
 }
 
 async function getSlotsForDate(date) {
+  const today = new Date().toISOString().split('T')[0];
   const result = await query(
     `SELECT * FROM slots
-     WHERE status = 'free' AND date = $1
+     WHERE status = 'free' AND date = $1 AND date >= $2
      ORDER BY time ASC`,
-    [date]
+    [date, today]
   );
   return result.rows;
 }
