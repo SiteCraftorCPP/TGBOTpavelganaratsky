@@ -135,7 +135,8 @@ const ClientsList = () => {
 
   const openBookingDialog = (client: Client) => {
     setSelectedClient(client);
-    setBookingDate(undefined);
+    // Set today as default date to allow booking today
+    setBookingDate(new Date());
     setBookingTime("");
     setBookingFormat("offline");
     setBookingDialogOpen(true);
@@ -358,12 +359,15 @@ const ClientsList = () => {
                   onSelect={setBookingDate}
                   locale={ru}
                   disabled={(date) => {
+                    // Only disable past dates, allow today and future dates
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    const selectedDate = new Date(date);
-                    selectedDate.setHours(0, 0, 0, 0);
-                    return selectedDate < today;
+                    const dateToCheck = new Date(date);
+                    dateToCheck.setHours(0, 0, 0, 0);
+                    // Return true only if date is BEFORE today (not today itself)
+                    return dateToCheck < today;
                   }}
+                  fromDate={new Date()}
                   className="rounded-md border pointer-events-auto"
                 />
               </div>
@@ -434,12 +438,15 @@ const ClientsList = () => {
                   onSelect={setRegularDate}
                   locale={ru}
                   disabled={(date) => {
+                    // Only disable past dates, allow today and future dates
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    const selectedDate = new Date(date);
-                    selectedDate.setHours(0, 0, 0, 0);
-                    return selectedDate < today;
+                    const dateToCheck = new Date(date);
+                    dateToCheck.setHours(0, 0, 0, 0);
+                    // Return true only if date is BEFORE today (not today itself)
+                    return dateToCheck < today;
                   }}
+                  fromDate={new Date()}
                   className="rounded-md border pointer-events-auto"
                 />
               </div>
