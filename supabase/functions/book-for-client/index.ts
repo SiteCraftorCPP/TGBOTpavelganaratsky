@@ -64,7 +64,8 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Check if date is in the past
+    // Check if date is in the past (only for past dates, not today)
+    // Admin can book for any time today or in the future
     const today = new Date().toISOString().split('T')[0]
     const bookingDate = typeof date === 'string' ? date.split('T')[0] : String(date)
     
@@ -74,19 +75,7 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
-    // Check if date is today but time has passed
-    if (bookingDate === today) {
-      const now = new Date()
-      const currentTime = now.toTimeString().slice(0, 5) // HH:MM
-      const bookingTime = typeof time === 'string' ? time.slice(0, 5) : String(time).slice(0, 5)
-      if (bookingTime < currentTime) {
-        return new Response(
-          JSON.stringify({ error: 'Нельзя записаться на время, которое уже прошло' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      }
-    }
+    // No time check for today - admin can book for any time today
 
     // Get client info
     const { data: client, error: clientError } = await supabase
