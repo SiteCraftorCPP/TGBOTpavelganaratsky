@@ -77,21 +77,28 @@ async function deletePaymentScreenshot(screenshotUrl) {
 // Save about me photo
 async function saveAboutMePhoto(buffer, extension = 'jpg') {
   try {
-    const filename = `photo.${extension}`;
-    const filePath = path.join(ABOUT_ME_DIR, filename);
-    
-    // Delete old photo if exists
+    // Delete all old photos first
     try {
-      await fs.unlink(filePath);
+      const files = await fs.readdir(ABOUT_ME_DIR);
+      for (const file of files) {
+        if (file.startsWith('photo')) {
+          await fs.unlink(path.join(ABOUT_ME_DIR, file));
+        }
+      }
     } catch (e) {
-      // File might not exist, ignore
+      // Directory might not exist, ignore
     }
+    
+    // Generate filename with timestamp to avoid cache issues
+    const timestamp = Date.now();
+    const filename = `photo-${timestamp}.${extension}`;
+    const filePath = path.join(ABOUT_ME_DIR, filename);
     
     // Save new photo
     await fs.writeFile(filePath, buffer);
     
-    // Generate public URL
-    const publicUrl = `${PUBLIC_URL}/storage/about-me/${filename}`;
+    // Generate public URL with cache-busting parameter
+    const publicUrl = `${PUBLIC_URL}/storage/about-me/${filename}?t=${timestamp}`;
     
     console.log('About me photo saved:', publicUrl);
     return publicUrl;

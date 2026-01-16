@@ -35,7 +35,22 @@ const ThemeSettings = () => {
   useEffect(() => {
     if (aboutMeSettings) {
       setAboutMeText(aboutMeSettings.text || "");
-      setAboutMePhoto(aboutMeSettings.photo_url || null);
+      // Add cache-busting parameter to photo URL if it exists
+      if (aboutMeSettings.photo_url) {
+        try {
+          const url = aboutMeSettings.photo_url.startsWith('http') 
+            ? new URL(aboutMeSettings.photo_url)
+            : new URL(aboutMeSettings.photo_url, window.location.origin);
+          url.searchParams.set('t', Date.now().toString());
+          setAboutMePhoto(url.toString());
+        } catch (e) {
+          // Fallback: just use the URL as-is with query param
+          const separator = aboutMeSettings.photo_url.includes('?') ? '&' : '?';
+          setAboutMePhoto(`${aboutMeSettings.photo_url}${separator}t=${Date.now()}`);
+        }
+      } else {
+        setAboutMePhoto(null);
+      }
     }
   }, [aboutMeSettings]);
 
@@ -49,9 +64,28 @@ const ThemeSettings = () => {
     mutationFn: async (data: { text: string; photo?: File; remove_photo?: boolean }) => {
       return await api.saveAboutMe(data);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["about_me"] });
+    onSuccess: (response) => {
+      // Update photo URL immediately from response with cache-busting
+      if (response.photo_url) {
+        try {
+          const url = response.photo_url.startsWith('http') 
+            ? new URL(response.photo_url)
+            : new URL(response.photo_url, window.location.origin);
+          url.searchParams.set('t', Date.now().toString());
+          setAboutMePhoto(url.toString());
+        } catch (e) {
+          // Fallback: just use the URL as-is with query param
+          const separator = response.photo_url.includes('?') ? '&' : '?';
+          setAboutMePhoto(`${response.photo_url}${separator}t=${Date.now()}`);
+        }
+      } else {
+        setAboutMePhoto(null);
+      }
       setPhotoFile(null);
+      // Invalidate query after a short delay to refresh data
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["about_me"] });
+      }, 100);
       toast.success("Информация сохранена");
     },
     onError: (error: Error) => {
