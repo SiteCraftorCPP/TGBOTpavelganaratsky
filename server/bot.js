@@ -27,7 +27,9 @@ app.use((req, res, next) => {
 
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const ADMIN_TELEGRAM_IDS = [783321437, 6933111964];
+// Parse ADMIN_TELEGRAM_IDS from env (comma-separated string)
+const ADMIN_TELEGRAM_IDS_STR = process.env.ADMIN_TELEGRAM_IDS || '783321437,6933111964';
+const ADMIN_TELEGRAM_IDS = ADMIN_TELEGRAM_IDS_STR.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
 
 function isAdmin(telegramId) {
   return ADMIN_TELEGRAM_IDS.includes(telegramId);
@@ -41,6 +43,7 @@ if (!TELEGRAM_BOT_TOKEN) {
 
 console.log('✓ Environment variables loaded');
 console.log('✓ Bot token:', TELEGRAM_BOT_TOKEN ? `${TELEGRAM_BOT_TOKEN.substring(0, 10)}...` : 'NOT SET');
+console.log('✓ Admin IDs:', ADMIN_TELEGRAM_IDS);
 
 // Telegram API functions
 async function sendMessageToAllAdmins(text) {
