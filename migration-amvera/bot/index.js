@@ -605,7 +605,16 @@ async function handleTextMessage(message, client) {
 
   if (text === '/start' || text === '/menu' || text === '📋 Главное меню') {
     clearState(chatId);
-    await handleStart(chatId, telegramId);
+    
+    // Принудительно отправляем обычную кнопку под полем ввода
+    await sendMessage(chatId, 'Открываю меню...', {
+      keyboard: [[{ text: '📋 Главное меню' }]],
+      resize_keyboard: true,
+      persistent: true
+    });
+
+    // Отправляем основное инлайн-меню
+    await sendMessage(chatId, 'Выберите нужный раздел:', getMainMenuKeyboard(telegramId));
     return;
   }
 
