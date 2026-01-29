@@ -89,13 +89,18 @@ async function answerCallbackQuery(callbackQueryId, text) {
 
 async function setChatMenuButton(chatId) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`;
+  const body = {
+    menu_button: { type: 'commands' }
+  };
+  
+  if (chatId) {
+    body.chat_id = chatId;
+  }
+
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      menu_button: { type: 'commands' }
-    }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -779,6 +784,15 @@ app.get('/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Bot server running on port ${PORT}`);
+  
+  // Настройка команд и кнопки меню глобально при запуске
+  try {
+    await setMyCommands();
+    await setChatMenuButton();
+    console.log('✓ Global bot commands and menu button initialized');
+  } catch (error) {
+    console.error('❌ Error initializing bot commands:', error);
+  }
 });

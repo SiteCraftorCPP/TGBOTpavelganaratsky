@@ -111,17 +111,22 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
 }
 
 // Set up menu button for the bot
-async function setChatMenuButton(chatId: number) {
+async function setChatMenuButton(chatId?: number) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`
+  const body: any = {
+    menu_button: {
+      type: 'commands'
+    }
+  }
+  
+  if (chatId) {
+    body.chat_id = chatId
+  }
+
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      menu_button: {
-        type: 'commands'
-      }
-    }),
+    body: JSON.stringify(body),
   })
 }
 

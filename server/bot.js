@@ -124,6 +124,36 @@ async function answerCallbackQuery(callbackQueryId, text) {
   });
 }
 
+async function setChatMenuButton(chatId) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`;
+  const body = {
+    menu_button: { type: 'commands' }
+  };
+  
+  if (chatId) {
+    body.chat_id = chatId;
+  }
+
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+async function setMyCommands() {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`;
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      commands: [
+        { command: 'menu', description: '🏠 Главное меню' }
+      ]
+    }),
+  });
+}
+
 function formatDate(dateStr) {
   const date = new Date(dateStr);
   return date.toLocaleDateString('ru-RU', {
@@ -2178,6 +2208,16 @@ app.get('/api/diary', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Bot server running on port ${PORT}`);
+  
+  // Настройка команд и кнопки меню глобально при запуске
+  try {
+    await setMyCommands();
+    await setChatMenuButton();
+    console.log('✓ Global bot commands and menu button initialized');
+  } catch (error) {
+    console.error('❌ Error initializing bot commands:', error);
+  }
+
   await initStorage();
   console.log('✓ Storage initialized');
 });
