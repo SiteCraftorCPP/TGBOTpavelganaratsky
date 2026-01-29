@@ -64,11 +64,16 @@ async function sendMessage(chatId, text, replyMarkup, useReplyKeyboard = true) {
     parse_mode: 'HTML',
   };
 
+  // Если передана инлайн-клавиатура, мы всё равно можем отправить reply_markup с кнопкой меню,
+  // но Telegram позволяет только один тип клавиатуры в одном сообщении.
+  // Поэтому Reply Keyboard нужно отправить ОДИН РАЗ при /start или открытии меню, 
+  // и она будет висеть под полем ввода.
+  
   if (replyMarkup) {
     body.reply_markup = replyMarkup;
   } else if (useReplyKeyboard) {
     body.reply_markup = {
-      keyboard: [[{ text: '📋 Меню' }]],
+      keyboard: [[{ text: '📋 Главное меню' }]],
       resize_keyboard: true,
       persistent: true
     };
@@ -967,7 +972,7 @@ async function handleTextMessage(message, client) {
   const telegramId = message.from.id;
 
   // Check for commands
-  if (text === '/start' || text === '/menu' || text === '📋 Меню') {
+  if (text === '/start' || text === '/menu' || text === '📋 Меню' || text === '📋 Главное меню') {
     await clearState(chatId);
     await sendMessage(chatId, 'Вы в главном меню:', getMainMenuKeyboard(telegramId));
     return;

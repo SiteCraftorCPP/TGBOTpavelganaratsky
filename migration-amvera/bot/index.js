@@ -30,15 +30,22 @@ const pool = new Pool({
 
 // ============= Telegram API =============
 
-async function sendMessage(chatId, text, replyMarkup) {
+async function sendMessage(chatId, text, replyMarkup, useReplyKeyboard = true) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   const body = {
     chat_id: chatId,
     text,
     parse_mode: 'HTML',
   };
+
   if (replyMarkup) {
     body.reply_markup = replyMarkup;
+  } else if (useReplyKeyboard) {
+    body.reply_markup = {
+      keyboard: [[{ text: '📋 Главное меню' }]],
+      resize_keyboard: true,
+      persistent: true
+    };
   }
 
   const response = await fetch(url, {
@@ -596,7 +603,7 @@ async function handleTextMessage(message, client) {
   const text = message.text || '';
   const telegramId = message.from.id;
 
-  if (text === '/start' || text === '/menu') {
+  if (text === '/start' || text === '/menu' || text === '📋 Главное меню') {
     clearState(chatId);
     await handleStart(chatId, telegramId);
     return;

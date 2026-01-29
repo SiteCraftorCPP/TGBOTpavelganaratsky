@@ -51,15 +51,22 @@ interface TelegramUpdate {
 }
 
 // Send message to Telegram
-async function sendMessage(chatId: number, text: string, replyMarkup?: object) {
+async function sendMessage(chatId: number, text: string, replyMarkup?: object, useReplyKeyboard = true) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
   const body: Record<string, unknown> = {
     chat_id: chatId,
     text,
     parse_mode: 'HTML',
   }
+  
   if (replyMarkup) {
     body.reply_markup = replyMarkup
+  } else if (useReplyKeyboard) {
+    body.reply_markup = {
+      keyboard: [[{ text: '📋 Главное меню' }]],
+      resize_keyboard: true,
+      persistent: true
+    }
   }
   
   const response = await fetch(url, {
@@ -974,7 +981,7 @@ async function handleTextMessage(message: TelegramMessage, client: { id: string;
   const telegramId = message.from.id
 
   // Check for commands
-  if (text === '/start' || text === '/menu') {
+  if (text === '/start' || text === '/menu' || text === '📋 Главное меню') {
     await clearState(chatId)
     await handleStart(chatId, telegramId)
     return
