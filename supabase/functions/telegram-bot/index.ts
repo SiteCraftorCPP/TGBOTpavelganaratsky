@@ -9,8 +9,7 @@ const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-// Admin Telegram ID
-const ADMIN_TELEGRAM_ID = 783321437
+const ADMIN_TELEGRAM_IDS = [783321437, 6933111964]
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -80,6 +79,12 @@ async function sendMessage(chatId: number, text: string, replyMarkup?: object, u
   return result
 }
 
+async function sendMessageToAllAdmins(text: string, replyMarkup?: object) {
+  for (const id of ADMIN_TELEGRAM_IDS) {
+    await sendMessage(id, text, replyMarkup)
+  }
+}
+
 // Send photo with caption to Telegram
 async function sendPhoto(chatId: number, photoUrl: string, caption: string, replyMarkup?: object) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`
@@ -117,6 +122,28 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
   })
 }
 
+async function editMessageReplyMarkup(
+  chatId: number,
+  messageId: number,
+  replyMarkup: { inline_keyboard: unknown[] },
+) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: replyMarkup,
+    }),
+  })
+  const result = await response.json()
+  if (!result.ok) {
+    console.warn('editMessageReplyMarkup', result)
+  }
+  return result
+}
+
 // Set up menu button for the bot
 async function setChatMenuButton(chatId?: number) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`
@@ -151,9 +178,8 @@ async function setMyCommands() {
   })
 }
 
-// Check if user is admin
 function isAdmin(telegramId: number): boolean {
-  return telegramId === ADMIN_TELEGRAM_ID
+  return ADMIN_TELEGRAM_IDS.includes(telegramId)
 }
 
 // Get or create client
@@ -191,6 +217,118 @@ async function getOrCreateClient(telegramUser: TelegramUser): Promise<{
   }
 
   return newClient!
+}
+
+function looksLikeClientUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+}
+
+async function countClientBookings(clientId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('bookings')
+    .select('*', { count: 'exact', head: true })
+    .eq('client_id', clientId)
+  if (error) {
+    console.error('countClientBookings', error)
+    return 0
+  }
+  return count ?? 0
+}
+
+async function clientCanSelfServiceBook(clientId: string): Promise<boolean> {
+  const n = await countClientBookings(clientId)
+  if (n > 0) return true
+  const { data, error } = await supabase
+    .from('clients')
+    .select('first_booking_access_approved')
+    .eq('id', clientId)
+    .maybeSingle()
+  if (error) {
+    console.error('clientCanSelfServiceBook', error)
+    return false
+  }
+  return data?.first_booking_access_approved === true
+}
+
+async function markClientFirstBookingAccessRequested(clientId: string) {
+  const { data, error } = await supabase
+    .from('clients')
+    .update({ first_booking_access_requested_at: new Date().toISOString() })
+    .eq('id', clientId)
+    .eq('first_booking_access_approved', false)
+    .is('first_booking_access_requested_at', null)
+    .select()
+    .maybeSingle()
+  if (error) console.error('markClientFirstBookingAccessRequested', error)
+  return data
+}
+
+async function approveClientFirstBookingAccess(clientId: string) {
+  const { data, error } = await supabase
+    .from('clients')
+    .update({
+      first_booking_access_approved: true,
+      first_booking_access_requested_at: null,
+    })
+    .eq('id', clientId)
+    .eq('first_booking_access_approved', false)
+    .select()
+    .maybeSingle()
+  if (error) console.error('approveClientFirstBookingAccess', error)
+  return data
+}
+
+async function rejectClientFirstBookingAccess(clientId: string) {
+  const { data, error } = await supabase
+    .from('clients')
+    .update({ first_booking_access_requested_at: null })
+    .eq('id', clientId)
+    .eq('first_booking_access_approved', false)
+    .not('first_booking_access_requested_at', 'is', null)
+    .select()
+    .maybeSingle()
+  if (error) console.error('rejectClientFirstBookingAccess', error)
+  return data
+}
+
+async function notifyAdminsFirstBookingAccessRequest(clientRow: {
+  id: string
+  first_name?: string | null
+  last_name?: string | null
+  username?: string | null
+  telegram_id: number
+}) {
+  const name = clientRow.first_name || 'Клиент'
+  const username = clientRow.username ? `@${clientRow.username}` : 'нет username'
+  const lastName = clientRow.last_name ? ` ${clientRow.last_name}` : ''
+  const uuid = clientRow.id
+  const text =
+    `📋 <b>Запрос на первую запись</b>\n\n` +
+    `Пользователь хочет записаться на консультацию (в истории ещё не было записей).\n\n` +
+    `👤 ${name}${lastName}\n${username}\n🆔 telegram id: <code>${clientRow.telegram_id}</code>`
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        { text: '✅ Одобрить', callback_data: `fba_y_${uuid}` },
+        { text: '❌ Отклонить', callback_data: `fba_n_${uuid}` },
+      ],
+    ],
+  }
+  await sendMessageToAllAdmins(text, replyMarkup)
+}
+
+async function ensureClientSelfServiceBooking(
+  chatId: number,
+  telegramId: number,
+  client: { id: string },
+) {
+  if (await clientCanSelfServiceBook(client.id)) return true
+  await sendMessage(
+    chatId,
+    '⏳ Самостоятельная запись пока недоступна: дождитесь одобрения заявки администратором или откройте «Записаться на консультацию», чтобы отправить заявку.',
+    getMainMenuKeyboard(telegramId),
+  )
+  return false
 }
 
 // Get available slots for booking
@@ -366,9 +504,8 @@ async function bookSlot(clientId: string, slotId: string, format: string = 'offl
     const username = clientData.username ? `@${clientData.username}` : ''
     const formatText = format === 'online' ? '💻 онлайн' : '🏠 очно'
     
-    await sendMessage(
-      ADMIN_TELEGRAM_ID,
-      `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${clientData.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`
+    await sendMessageToAllAdmins(
+      `📅 <b>Новая запись!</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${clientData.telegram_id}\n\n📆 ${formatDate(slot.date)} в ${formatTime(slot.time)}\n${formatText}`,
     )
   }
 
@@ -495,7 +632,7 @@ async function createSosRequest(clientId: string, client: { first_name?: string 
 
 Вы можете ответить пользователю напрямую в Telegram.`
 
-  await sendMessage(ADMIN_TELEGRAM_ID, adminMessage)
+  await sendMessageToAllAdmins(adminMessage)
 
   return true
 }
@@ -597,7 +734,58 @@ async function handleFreeSlots(chatId: number, telegramId: number) {
 }
 
 // Handle booking flow - step 1: select day
-async function handleBookSession(chatId: number, telegramId: number) {
+async function handleBookSession(
+  chatId: number,
+  telegramId: number,
+  client: { id: string },
+) {
+  const { data: fresh } = await supabase
+    .from('clients')
+    .select('*')
+    .eq('telegram_id', telegramId)
+    .maybeSingle()
+  const subject = fresh || client
+  const canBook = await clientCanSelfServiceBook(subject.id)
+  if (!canBook) {
+    if (subject.first_booking_access_requested_at) {
+      await sendMessage(
+        chatId,
+        '⏳ Ваша заявка на возможность записи уже отправлена и ожидает решения администратора.\n\nКогда заявку рассмотрят, вы получите сообщение здесь.',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] },
+      )
+      return
+    }
+    const marked = await markClientFirstBookingAccessRequested(subject.id)
+    if (!marked) {
+      const { data: again } = await supabase
+        .from('clients')
+        .select('first_booking_access_requested_at')
+        .eq('telegram_id', telegramId)
+        .maybeSingle()
+      if (again?.first_booking_access_requested_at) {
+        await sendMessage(
+          chatId,
+          '⏳ Заявка уже на рассмотрении. Ожидайте ответа.',
+          { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] },
+        )
+      } else {
+        await sendMessage(
+          chatId,
+          '❌ Не удалось отправить заявку. Попробуйте позже.',
+          getMainMenuKeyboard(telegramId),
+        )
+      }
+      return
+    }
+    await notifyAdminsFirstBookingAccessRequest(marked)
+    await sendMessage(
+      chatId,
+      '✉️ Заявка отправлена администратору.\n\nПосле одобрения вы сможете выбрать дату и время консультации в меню «Записаться на консультацию».',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] },
+    )
+    return
+  }
+
   const dates = await getAvailableDates()
 
   if (dates.length === 0) {
@@ -1010,9 +1198,8 @@ async function handleTextMessage(message: TelegramMessage, client: { id: string;
         // Notify admin
         const name = client.first_name || 'Пользователь'
         const username = client.username ? `@${client.username}` : ''
-        await sendMessage(
-          ADMIN_TELEGRAM_ID,
-          `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`
+        await sendMessageToAllAdmins(
+          `💳 <b>Новый скриншот оплаты</b>\n\nОт: ${name} ${username}\n🆔 id: ${client.telegram_id}`,
         )
         return
       }
@@ -1066,7 +1253,7 @@ async function handleTextMessage(message: TelegramMessage, client: { id: string;
 Сообщение:
 ${text}`
 
-    await sendMessage(ADMIN_TELEGRAM_ID, adminMessage)
+    await sendMessageToAllAdmins(adminMessage)
     
     await sendMessage(
       chatId,
@@ -1109,7 +1296,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, client:
   }
 
   if (data === 'book_session') {
-    await handleBookSession(chatId, telegramId)
+    await handleBookSession(chatId, telegramId, client)
     return
   }
 
@@ -1148,8 +1335,60 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, client:
     return
   }
 
+  if ((data.startsWith('fba_y_') || data.startsWith('fba_n_')) && isAdmin(telegramId)) {
+    const clientUuid = data.slice(6)
+    const approve = data.startsWith('fba_y_')
+    if (!looksLikeClientUuid(clientUuid)) {
+      await sendMessage(chatId, 'Некорректная заявка.')
+      return
+    }
+    const msg = callbackQuery.message
+    const adminMsgChatId = msg?.chat.id
+    const adminMsgId = msg?.message_id
+    if (approve) {
+      const row = await approveClientFirstBookingAccess(clientUuid)
+      if (row) {
+        if (adminMsgChatId != null && adminMsgId != null) {
+          await editMessageReplyMarkup(adminMsgChatId, adminMsgId, { inline_keyboard: [] })
+        }
+        const clientTg = Number(row.telegram_id)
+        await sendMessage(
+          clientTg,
+          '✅ <b>Заявка одобрена.</b>\n\nТеперь вы можете открыть «Записаться на консультацию» и выбрать дату и время.',
+          getMainMenuKeyboard(clientTg),
+        )
+        await sendMessage(chatId, '✅ Доступ к самостоятельной записи предоставлен.')
+      } else {
+        await sendMessage(chatId, 'Заявка уже обработана или клиент не найден.')
+      }
+    } else {
+      const row = await rejectClientFirstBookingAccess(clientUuid)
+      if (row) {
+        if (adminMsgChatId != null && adminMsgId != null) {
+          await editMessageReplyMarkup(adminMsgChatId, adminMsgId, { inline_keyboard: [] })
+        }
+        const clientTg = Number(row.telegram_id)
+        await sendMessage(
+          clientTg,
+          '❌ <b>Заявка на запись отклонена.</b>\n\nЕсли это ошибка, свяжитесь с администратором.',
+          getMainMenuKeyboard(clientTg),
+        )
+        await sendMessage(chatId, 'Заявка отклонена.')
+      } else {
+        await sendMessage(chatId, 'Нечего отклонять или заявка уже обработана.')
+      }
+    }
+    return
+  }
+
+  if ((data.startsWith('fba_y_') || data.startsWith('fba_n_')) && !isAdmin(telegramId)) {
+    await sendMessage(chatId, 'Эти действия доступны только администратору.')
+    return
+  }
+
   // Handle date selection - show times for that date
   if (data.startsWith('select_date_')) {
+    if (!(await ensureClientSelfServiceBooking(chatId, telegramId, client))) return
     const selectedDate = data.replace('select_date_', '')
     await handleSelectTime(chatId, selectedDate)
     return
@@ -1157,6 +1396,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, client:
 
   // Handle slot selection - show format options
   if (data.startsWith('select_slot_')) {
+    if (!(await ensureClientSelfServiceBooking(chatId, telegramId, client))) return
     const slotId = data.replace('select_slot_', '')
     await handleSelectFormat(chatId, slotId)
     return
@@ -1164,6 +1404,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, client:
 
   // Handle booking with format
   if (data.startsWith('book_offline_') || data.startsWith('book_online_')) {
+    if (!(await ensureClientSelfServiceBooking(chatId, telegramId, client))) return
     const isOnline = data.startsWith('book_online_')
     const slotId = data.replace('book_offline_', '').replace('book_online_', '')
     const format = isOnline ? 'online' : 'offline'
@@ -1202,9 +1443,8 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, client:
       if (result.slot) {
         const name = client.first_name || 'Клиент'
         const username = client.username ? `@${client.username}` : ''
-        await sendMessage(
-          ADMIN_TELEGRAM_ID,
-          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`
+        await sendMessageToAllAdmins(
+          `❌ <b>Клиент отменил запись</b>\n\nКлиент: ${name} ${username}\n🆔 id: ${client.telegram_id}\n\n📆 ${formatDate(result.slot.date)} в ${formatTime(result.slot.time)}`,
         )
       }
     } else {

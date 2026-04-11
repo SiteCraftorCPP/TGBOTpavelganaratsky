@@ -15,6 +15,8 @@ CREATE TABLE clients (
     username TEXT,
     first_name TEXT,
     last_name TEXT,
+    first_booking_access_approved BOOLEAN NOT NULL DEFAULT false,
+    first_booking_access_requested_at TIMESTAMPTZ,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 

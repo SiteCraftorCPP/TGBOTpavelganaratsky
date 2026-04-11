@@ -66,6 +66,62 @@ async function getClientById(id) {
   return result.rows[0] || null;
 }
 
+async function countClientBookings(clientId) {
+  const result = await query(
+    'SELECT COUNT(*)::int AS c FROM bookings WHERE client_id = $1',
+    [clientId]
+  );
+  return result.rows[0].c;
+}
+
+/** Есть ли в истории хотя бы одна запись — тогда самозапись без модерации. */
+async function clientCanSelfServiceBook(clientId) {
+  const n = await countClientBookings(clientId);
+  if (n > 0) return true;
+  const client = await getClientById(clientId);
+  if (!client) return false;
+  return client.first_booking_access_approved === true;
+}
+
+async function markClientFirstBookingAccessRequested(clientId) {
+  const result = await query(
+    `UPDATE clients
+     SET first_booking_access_requested_at = now()
+     WHERE id = $1::uuid
+       AND first_booking_access_approved = false
+       AND first_booking_access_requested_at IS NULL
+     RETURNING *`,
+    [clientId]
+  );
+  return result.rows[0] || null;
+}
+
+async function approveClientFirstBookingAccess(clientId) {
+  const result = await query(
+    `UPDATE clients
+     SET first_booking_access_approved = true,
+         first_booking_access_requested_at = NULL
+     WHERE id = $1::uuid
+       AND first_booking_access_approved = false
+     RETURNING *`,
+    [clientId]
+  );
+  return result.rows[0] || null;
+}
+
+async function rejectClientFirstBookingAccess(clientId) {
+  const result = await query(
+    `UPDATE clients
+     SET first_booking_access_requested_at = NULL
+     WHERE id = $1::uuid
+       AND first_booking_access_approved = false
+       AND first_booking_access_requested_at IS NOT NULL
+     RETURNING *`,
+    [clientId]
+  );
+  return result.rows[0] || null;
+}
+
 async function deleteClient(id) {
   await query('DELETE FROM clients WHERE id = $1', [id]);
 }
@@ -369,6 +425,11 @@ module.exports = {
   getClientByTelegramId,
   getClientById,
   createClient,
+  countClientBookings,
+  clientCanSelfServiceBook,
+  markClientFirstBookingAccessRequested,
+  approveClientFirstBookingAccess,
+  rejectClientFirstBookingAccess,
   getAllClients,
   deleteClient,
   // Slot

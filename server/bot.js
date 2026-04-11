@@ -46,9 +46,9 @@ console.log('✓ Bot token:', TELEGRAM_BOT_TOKEN ? `${TELEGRAM_BOT_TOKEN.substri
 console.log('✓ Admin IDs:', ADMIN_TELEGRAM_IDS);
 
 // Telegram API functions
-async function sendMessageToAllAdmins(text) {
+async function sendMessageToAllAdmins(text, replyMarkup = null) {
   const promises = ADMIN_TELEGRAM_IDS.map(adminId =>
-    sendMessage(adminId, text, null, false).catch(error => {
+    sendMessage(adminId, text, replyMarkup, false).catch(error => {
       console.error(`❌ Error sending message to admin ${adminId}:`, error);
       return null;
     })
@@ -159,6 +159,24 @@ async function setMyCommands() {
   });
 }
 
+async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: replyMarkup,
+    }),
+  });
+  const result = await response.json();
+  if (!result.ok) {
+    console.warn('editMessageReplyMarkup:', JSON.stringify(result));
+  }
+  return result;
+}
+
 function formatDate(dateStr) {
   const date = new Date(dateStr);
   return date.toLocaleDateString('ru-RU', {
@@ -195,6 +213,30 @@ function getMainMenuKeyboard(telegramId) {
   }
 
   return { inline_keyboard: keyboard };
+}
+
+function looksLikeClientUuid(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+async function notifyAdminsFirstBookingAccessRequest(clientRow) {
+  const name = clientRow.first_name || 'Клиент';
+  const username = clientRow.username ? `@${clientRow.username}` : 'нет username';
+  const lastName = clientRow.last_name ? ` ${clientRow.last_name}` : '';
+  const uuid = clientRow.id;
+  const text =
+    `📋 <b>Запрос на первую запись</b>\n\n` +
+    `Пользователь хочет записаться на консультацию (в истории ещё не было записей).\n\n` +
+    `👤 ${name}${lastName}\n${username}\n🆔 telegram id: <code>${clientRow.telegram_id}</code>`;
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        { text: '✅ Одобрить', callback_data: `fba_y_${uuid}` },
+        { text: '❌ Отклонить', callback_data: `fba_n_${uuid}` },
+      ],
+    ],
+  };
+  await sendMessageToAllAdmins(text, replyMarkup);
 }
 
 async function getOrCreateClient(telegramUser) {
@@ -472,9 +514,58 @@ async function getFileUrl(fileId) {
 
 // Save payment screenshot (using local storage) - function name conflicts, using storage module directly
 
+async function ensureClientSelfServiceBooking(chatId, telegramId, client) {
+  if (await db.clientCanSelfServiceBook(client.id)) return true;
+  await sendMessage(
+    chatId,
+    '⏳ Самостоятельная запись пока недоступна: дождитесь одобрения заявки администратором или откройте «Записаться на консультацию», чтобы отправить заявку.',
+    getMainMenuKeyboard(telegramId)
+  );
+  return false;
+}
+
 // Handle booking flow - step 1: select day
-async function handleBookSession(chatId, telegramId) {
+async function handleBookSession(chatId, telegramId, client) {
   try {
+    const fresh = await db.getClientByTelegramId(telegramId);
+    const subject = fresh || client;
+    const canBook = await db.clientCanSelfServiceBook(subject.id);
+    if (!canBook) {
+      if (subject.first_booking_access_requested_at) {
+        await sendMessage(
+          chatId,
+          '⏳ Ваша заявка на возможность записи уже отправлена и ожидает решения администратора.\n\nКогда заявку рассмотрят, вы получите сообщение здесь.',
+          { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+        );
+        return;
+      }
+      const marked = await db.markClientFirstBookingAccessRequested(subject.id);
+      if (!marked) {
+        const again = await db.getClientByTelegramId(telegramId);
+        if (again?.first_booking_access_requested_at) {
+          await sendMessage(
+            chatId,
+            '⏳ Заявка уже на рассмотрении. Ожидайте ответа.',
+            { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+          );
+        } else {
+          await sendMessage(
+            chatId,
+            '❌ Не удалось отправить заявку. Попробуйте позже.',
+            getMainMenuKeyboard(telegramId)
+          );
+        }
+        return;
+      }
+      await notifyAdminsFirstBookingAccessRequest(marked);
+      await sendMessage(
+        chatId,
+        '✉️ Заявка отправлена администратору.\n\nПосле одобрения вы сможете выбрать дату и время консультации в меню «Записаться на консультацию».',
+        { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+      );
+      return;
+    }
+
     console.log('📅 handleBookSession: getting available slots');
     const slots = await getAvailableSlots();
     console.log('📅 Raw slots from DB:', JSON.stringify(slots, null, 2));
@@ -1104,7 +1195,7 @@ async function handleCallbackQuery(callbackQuery, client) {
   if (data === 'book_session') {
     try {
       console.log('📅 Calling handleBookSession');
-      await handleBookSession(chatId, telegramId);
+      await handleBookSession(chatId, telegramId, client);
       console.log('✅ handleBookSession completed');
     } catch (error) {
       console.error('❌ Error in handleBookSession:', error);
@@ -1166,8 +1257,60 @@ async function handleCallbackQuery(callbackQuery, client) {
     return;
   }
 
+  if ((data.startsWith('fba_y_') || data.startsWith('fba_n_')) && isAdmin(telegramId)) {
+    const clientUuid = data.slice(6);
+    const approve = data.startsWith('fba_y_');
+    if (!looksLikeClientUuid(clientUuid)) {
+      await sendMessage(chatId, 'Некорректная заявка.', null, false);
+      return;
+    }
+    const msg = callbackQuery.message;
+    const adminMsgChatId = msg?.chat?.id;
+    const adminMsgId = msg?.message_id;
+    if (approve) {
+      const row = await db.approveClientFirstBookingAccess(clientUuid);
+      if (row) {
+        if (adminMsgChatId != null && adminMsgId != null) {
+          await editMessageReplyMarkup(adminMsgChatId, adminMsgId, { inline_keyboard: [] });
+        }
+        const clientTg = Number(row.telegram_id);
+        await sendMessage(
+          clientTg,
+          '✅ <b>Заявка одобрена.</b>\n\nТеперь вы можете открыть «Записаться на консультацию» и выбрать дату и время.',
+          getMainMenuKeyboard(clientTg)
+        );
+        await sendMessage(chatId, '✅ Доступ к самостоятельной записи предоставлен.', null, false);
+      } else {
+        await sendMessage(chatId, 'Заявка уже обработана или клиент не найден.', null, false);
+      }
+    } else {
+      const row = await db.rejectClientFirstBookingAccess(clientUuid);
+      if (row) {
+        if (adminMsgChatId != null && adminMsgId != null) {
+          await editMessageReplyMarkup(adminMsgChatId, adminMsgId, { inline_keyboard: [] });
+        }
+        const clientTg = Number(row.telegram_id);
+        await sendMessage(
+          clientTg,
+          '❌ <b>Заявка на запись отклонена.</b>\n\nЕсли это ошибка, свяжитесь с администратором.',
+          getMainMenuKeyboard(clientTg)
+        );
+        await sendMessage(chatId, 'Заявка отклонена.', null, false);
+      } else {
+        await sendMessage(chatId, 'Нечего отклонять или заявка уже обработана.', null, false);
+      }
+    }
+    return;
+  }
+
+  if ((data.startsWith('fba_y_') || data.startsWith('fba_n_')) && !isAdmin(telegramId)) {
+    await sendMessage(chatId, 'Эти действия доступны только администратору.', null, false);
+    return;
+  }
+
   // Handle date selection - show times for that date
   if (data.startsWith('select_date_')) {
+    if (!(await ensureClientSelfServiceBooking(chatId, telegramId, client))) return;
     const selectedDate = data.replace('select_date_', '');
     await handleSelectTime(chatId, selectedDate);
     return;
@@ -1175,6 +1318,7 @@ async function handleCallbackQuery(callbackQuery, client) {
 
   // Handle slot selection - show format options
   if (data.startsWith('select_slot_')) {
+    if (!(await ensureClientSelfServiceBooking(chatId, telegramId, client))) return;
     const slotId = data.replace('select_slot_', '');
     await handleSelectFormat(chatId, slotId);
     return;
@@ -1182,6 +1326,7 @@ async function handleCallbackQuery(callbackQuery, client) {
 
   // Handle booking with format
   if (data.startsWith('book_offline_') || data.startsWith('book_online_')) {
+    if (!(await ensureClientSelfServiceBooking(chatId, telegramId, client))) return;
     const isOnline = data.startsWith('book_online_');
     const slotId = data.replace('book_offline_', '').replace('book_online_', '');
     const format = isOnline ? 'online' : 'offline';
