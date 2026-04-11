@@ -48,8 +48,8 @@ async function getClientByTelegramId(telegramId) {
 
 async function createClient(telegramUser) {
   const result = await query(
-    `INSERT INTO clients (telegram_id, first_name, last_name, username)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO clients (telegram_id, first_name, last_name, username, first_booking_access_approved)
+     VALUES ($1, $2, $3, $4, false)
      RETURNING *`,
     [
       telegramUser.id,
