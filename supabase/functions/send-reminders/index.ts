@@ -67,22 +67,25 @@ Deno.serve(async (req) => {
     
     console.log(`Current Moscow time: ${currentDate} ${currentHour}:${currentMinute}`)
     
-    // Calculate target time range (1 hour from now, with 10 min buffer)
-    const targetTime = new Date(moscowNow.getTime() + 60 * 60 * 1000) // +1 hour
-    const targetHour = targetTime.getUTCHours()
-    const targetMinute = targetTime.getUTCMinutes()
-    
-    // Format time for comparison (HH:MM:SS)
-    const timeFrom = `${String(targetHour).padStart(2, '0')}:${String(Math.max(0, targetMinute - 5)).padStart(2, '0')}:00`
-    const timeTo = `${String(targetHour).padStart(2, '0')}:${String(Math.min(59, targetMinute + 5)).padStart(2, '0')}:00`
-    
-    console.log(`Looking for slots between ${timeFrom} and ${timeTo} on ${currentDate}`)
-    
-    // Calculate target date for 24h reminder (tomorrow)
-    const tomorrow = new Date(moscowNow.getTime() + 24 * 60 * 60 * 1000)
-    const tomorrowDate = tomorrow.toISOString().split('T')[0]
-    
-    console.log(`Looking for 24h reminders for date ${tomorrowDate}`)
+    // 1h reminder: slot is today, time is ~1h from now (±5 min)
+    const targetTime1h = new Date(moscowNow.getTime() + 60 * 60 * 1000)
+    const h1 = targetTime1h.getUTCHours()
+    const m1 = targetTime1h.getUTCMinutes()
+    const timeFrom1h = `${String(h1).padStart(2, '0')}:${String(Math.max(0, m1 - 5)).padStart(2, '0')}:00`
+    const timeTo1h = `${String(h1).padStart(2, '0')}:${String(Math.min(59, m1 + 5)).padStart(2, '0')}:00`
+
+    // 24h reminder: slot date/time is ~24h from now (±5 min) — was wrongly using 1h window
+    const targetTime24h = new Date(moscowNow.getTime() + 24 * 60 * 60 * 1000)
+    const targetDate24h = targetTime24h.toISOString().split('T')[0]
+    const h24 = targetTime24h.getUTCHours()
+    const m24 = targetTime24h.getUTCMinutes()
+    const timeFrom24h = `${String(h24).padStart(2, '0')}:${String(Math.max(0, m24 - 5)).padStart(2, '0')}:00`
+    const timeTo24h = `${String(h24).padStart(2, '0')}:${String(Math.min(59, m24 + 5)).padStart(2, '0')}:00`
+
+    console.log(
+      `1h: slots on ${currentDate} between ${timeFrom1h} and ${timeTo1h}; ` +
+        `24h: slots on ${targetDate24h} between ${timeFrom24h} and ${timeTo24h}`,
+    )
     
     // Find bookings that need 1-hour reminder
     const { data: bookings, error: bookingsError } = await supabase
@@ -125,9 +128,8 @@ Deno.serve(async (req) => {
       }
       
       // Check for 24h reminder
-      if (!booking.reminder_24h_sent && slot.date === tomorrowDate) {
-        // Check if same time window (±5 minutes)
-        if (slot.time >= timeFrom && slot.time <= timeTo) {
+      if (!booking.reminder_24h_sent && slot.date === targetDate24h) {
+        if (slot.time >= timeFrom24h && slot.time <= timeTo24h) {
           console.log(`Sending 24h reminder for booking ${booking.id} to client ${client.telegram_id}`)
           
           const name = client.first_name || 'Уважаемый клиент'
@@ -161,7 +163,7 @@ ${name}, завтра у вас консультация!
       
       // Check for 1h reminder
       if (!booking.reminder_1h_sent && slot.date === currentDate) {
-        if (slot.time >= timeFrom && slot.time <= timeTo) {
+        if (slot.time >= timeFrom1h && slot.time <= timeTo1h) {
           console.log(`Sending 1h reminder for booking ${booking.id} to client ${client.telegram_id}`)
           
           // Send reminder
