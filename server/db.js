@@ -173,7 +173,7 @@ async function getSlotsForDate(date) {
       `SELECT * FROM slots
        WHERE status = 'free' AND date = $1::date AND time::text >= $2
        ORDER BY time ASC`,
-      [date, currentTime]
+      [slotDate, currentTime]
     );
   } else {
     // For future dates, no time filtering needed
@@ -181,7 +181,7 @@ async function getSlotsForDate(date) {
       `SELECT * FROM slots
        WHERE status = 'free' AND date = $1::date AND date >= $2::date
        ORDER BY time ASC`,
-      [date, today]
+      [slotDate, today]
     );
   }
   return result.rows;
@@ -224,14 +224,30 @@ async function updateSlot(slotId, updates) {
 }
 
 async function createSlot(date, time, availableFormats = 'both') {
+  const dateNorm = typeof date === 'string' ? date.split('T')[0] : String(date).split('T')[0];
+  const timeNorm = time && String(time).includes(':') && String(time).split(':').length === 2
+    ? `${time}:00`
+    : time;
+
   const result = await query(
     `INSERT INTO slots (date, time, available_formats)
-     VALUES ($1, $2, $3)
+     VALUES ($1::date, $2::time, $3)
      ON CONFLICT (date, time) DO NOTHING
      RETURNING *`,
-    [date, time, availableFormats]
+    [dateNorm, timeNorm, availableFormats]
   );
-  return result.rows[0];
+  if (result.rows[0]) {
+    return result.rows[0];
+  }
+  // Row already exists (concurrent create or find missed a format) — return it
+  const shortTime = (time && String(time).slice(0, 5)) || '';
+  const existing = await query(
+    `SELECT * FROM slots
+     WHERE date = $1::date
+     AND (time = $2::time OR time = $3::time OR time::text LIKE $4)`,
+    [dateNorm, time, timeNorm, shortTime ? `${shortTime}%` : '%']
+  );
+  return existing.rows[0] || null;
 }
 
 async function deleteSlot(slotId) {

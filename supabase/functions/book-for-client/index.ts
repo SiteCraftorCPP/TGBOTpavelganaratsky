@@ -48,6 +48,27 @@ function formatTime(timeStr: string) {
   return timeStr.slice(0, 5)
 }
 
+function normalizeTimeForSlot(t: string) {
+  const s = String(t)
+  return s.split(':').length === 2 && s.length <= 5 ? `${s}:00` : s
+}
+
+async function findSlotByDateTime(dateParam: string, time: string) {
+  const tNorm = normalizeTimeForSlot(time)
+  for (const t of [tNorm, time]) {
+    const { data } = await supabase
+      .from('slots')
+      .select('*')
+      .eq('date', dateParam)
+      .eq('time', t)
+      .maybeSingle()
+    if (data) {
+      return data
+    }
+  }
+  return null
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -68,7 +89,8 @@ Deno.serve(async (req) => {
     // Admin can book for any time today or in the future
     const today = new Date().toISOString().split('T')[0]
     const bookingDate = typeof date === 'string' ? date.split('T')[0] : String(date)
-    
+    const dateParam = bookingDate
+
     if (bookingDate < today) {
       return new Response(
         JSON.stringify({ error: 'Нельзя записаться на дату из прошлого' }),
@@ -91,13 +113,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Check if slot exists for this date and time
-    const { data: existingSlot } = await supabase
-      .from('slots')
-      .select('*')
-      .eq('date', date)
-      .eq('time', time)
-      .maybeSingle()
+    const existingSlot = await findSlotByDateTime(dateParam, time)
 
     let slotId: string
 
@@ -111,25 +127,36 @@ Deno.serve(async (req) => {
       }
       slotId = existingSlot.id
     } else {
-      // Create a new slot
+      const timeNorm = normalizeTimeForSlot(time)
       const { data: newSlot, error: slotError } = await supabase
         .from('slots')
         .insert({
-          date,
-          time,
+          date: dateParam,
+          time: timeNorm,
           status: 'free',
-          available_formats: 'both'
+          available_formats: 'both',
         })
         .select()
         .single()
 
-      if (slotError || !newSlot) {
+      if (slotError?.code === '23505') {
+        const concurrent = await findSlotByDateTime(dateParam, time)
+        if (concurrent?.status === 'free') {
+          slotId = concurrent.id
+        } else {
+          return new Response(
+            JSON.stringify({ error: 'Slot is already booked' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+      } else if (slotError || !newSlot) {
         return new Response(
           JSON.stringify({ error: 'Failed to create slot' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
+      } else {
+        slotId = newSlot.id
       }
-      slotId = newSlot.id
     }
 
     // Book the slot

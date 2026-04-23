@@ -1481,6 +1481,7 @@ app.post('/book-for-client', async (req, res) => {
     // Admin can book for any time today or in the future
     const today = new Date().toISOString().split('T')[0];
     const bookingDate = typeof date === 'string' ? date.split('T')[0] : String(date);
+    const dateParam = bookingDate;
     
     if (bookingDate < today) {
       return res.status(400).json({ error: 'Нельзя записаться на дату из прошлого' });
@@ -1496,13 +1497,14 @@ app.post('/book-for-client', async (req, res) => {
 
     // Ensure time format is HH:MM:SS for database comparison
     const timeFormatted = time.includes(':') && time.split(':').length === 2 ? `${time}:00` : time;
+    const timeLike = time && String(time).length >= 5 ? `${String(time).slice(0, 5)}%` : `${time}%`;
     
     // Check if slot exists for this date and time (compare both HH:MM and HH:MM:SS formats)
     const existingSlotResult = await db.query(
       `SELECT * FROM slots 
        WHERE date = $1::date 
        AND (time = $2::time OR time = $3::time OR time::text LIKE $4)`,
-      [date, time, timeFormatted, `${time}%`]
+      [dateParam, time, timeFormatted, timeLike]
     );
     const existingSlot = existingSlotResult.rows[0];
 
@@ -1518,9 +1520,9 @@ app.post('/book-for-client', async (req, res) => {
       slotId = existingSlot.id;
       console.log('✅ Using existing free slot:', slotId);
     } else {
-      console.log('📅 No slot found, creating new one for:', { date, time });
+      console.log('📅 No slot found, creating new one for:', { date: dateParam, time });
       // Create a new slot
-      const newSlot = await db.createSlot(date, timeFormatted, 'both');
+      const newSlot = await db.createSlot(dateParam, timeFormatted, 'both');
       if (!newSlot) {
         console.error('❌ Failed to create slot');
         return res.status(500).json({ error: 'Не удалось создать слот' });

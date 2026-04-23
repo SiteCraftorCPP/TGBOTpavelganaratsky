@@ -367,7 +367,17 @@ async function getAvailableSlots() {
 // Get unique dates from available slots
 async function getAvailableDates() {
   const slots = await getAvailableSlots()
-  const uniqueDates = [...new Set(slots.map(slot => slot.date))]
+  const uniqueDates = [
+    ...new Set(
+      slots.map((slot) => {
+        const d = slot.date
+        if (d instanceof Date) {
+          return d.toISOString().split('T')[0]
+        }
+        return typeof d === 'string' ? d.split('T')[0] : String(d).split('T')[0]
+      }),
+    ),
+  ]
   return uniqueDates
 }
 
@@ -376,13 +386,13 @@ async function getSlotsForDate(date: string) {
   const now = new Date()
   const today = now.toISOString().split('T')[0]
   const currentTime = now.toTimeString().slice(0, 5) // HH:MM
-  const slotDate = typeof date === 'string' ? date.split('T')[0] : String(date)
+  const slotDate = (typeof date === 'string' ? date : String(date)).split('T')[0]
   
   const { data: slots, error } = await supabase
     .from('slots')
     .select('*')
     .eq('status', 'free')
-    .eq('date', date)
+    .eq('date', slotDate)
     .gte('date', today)
     .order('time', { ascending: true })
 
