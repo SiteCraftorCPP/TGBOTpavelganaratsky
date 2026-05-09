@@ -47,6 +47,20 @@ function formatTime(timeStr: string) {
   return timeStr.slice(0, 5)
 }
 
+/** Слот в БД хранится как дата + время календаря Москвы (UTC+3 без DST). */
+function slotStartUtcMs(dateStr: string, timeStr: string): number {
+  const [y, mo, d] = dateStr.split('-').map(Number)
+  const parts = timeStr.trim().split(':')
+  const hh = Number(parts[0])
+  const mm = Number(parts[1] ?? 0)
+  const ss = Number(parts[2] ?? 0)
+  const MSC_OFFSET_MS = 3 * 60 * 60 * 1000
+  return Date.UTC(y, mo - 1, d, hh, mm, ss) - MSC_OFFSET_MS
+}
+
+/** Окно вокруг «ровно через N секунд»: cron раз в минуту + записи не ровно на час. */
+const REMINDER_TOLERANCE_SEC = 20 * 60 // ±20 мин
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -55,37 +69,22 @@ Deno.serve(async (req) => {
 
   try {
     console.log('Starting reminder check...')
-    
-    // Get current time in Moscow timezone (UTC+3)
-    const now = new Date()
-    const moscowOffset = 3 * 60 * 60 * 1000 // 3 hours in milliseconds
-    const moscowNow = new Date(now.getTime() + moscowOffset)
-    
-    const currentDate = moscowNow.toISOString().split('T')[0]
-    const currentHour = moscowNow.getUTCHours()
-    const currentMinute = moscowNow.getUTCMinutes()
-    
-    console.log(`Current Moscow time: ${currentDate} ${currentHour}:${currentMinute}`)
-    
-    // 1h reminder: slot is today, time is ~1h from now (±5 min)
-    const targetTime1h = new Date(moscowNow.getTime() + 60 * 60 * 1000)
-    const h1 = targetTime1h.getUTCHours()
-    const m1 = targetTime1h.getUTCMinutes()
-    const timeFrom1h = `${String(h1).padStart(2, '0')}:${String(Math.max(0, m1 - 5)).padStart(2, '0')}:00`
-    const timeTo1h = `${String(h1).padStart(2, '0')}:${String(Math.min(59, m1 + 5)).padStart(2, '0')}:00`
 
-    // 24h reminder: slot date/time is ~24h from now (±5 min) — was wrongly using 1h window
-    const targetTime24h = new Date(moscowNow.getTime() + 24 * 60 * 60 * 1000)
-    const targetDate24h = targetTime24h.toISOString().split('T')[0]
-    const h24 = targetTime24h.getUTCHours()
-    const m24 = targetTime24h.getUTCMinutes()
-    const timeFrom24h = `${String(h24).padStart(2, '0')}:${String(Math.max(0, m24 - 5)).padStart(2, '0')}:00`
-    const timeTo24h = `${String(h24).padStart(2, '0')}:${String(Math.min(59, m24 + 5)).padStart(2, '0')}:00`
+    const nowMs = Date.now()
+    const SEC_1H = 60 * 60
+    const SEC_24H = 24 * SEC_1H
+    const logMoscow = new Date(nowMs).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })
+    console.log(`Now (Moscow wall): ${logMoscow}`)
 
-    console.log(
-      `1h: slots on ${currentDate} between ${timeFrom1h} and ${timeTo1h}; ` +
-        `24h: slots on ${targetDate24h} between ${timeFrom24h} and ${timeTo24h}`,
-    )
+    const in1hBand = (remainingSec: number) =>
+      remainingSec > 0 &&
+      remainingSec >= SEC_1H - REMINDER_TOLERANCE_SEC &&
+      remainingSec <= SEC_1H + REMINDER_TOLERANCE_SEC
+
+    const in24hBand = (remainingSec: number) =>
+      remainingSec > 0 &&
+      remainingSec >= SEC_24H - REMINDER_TOLERANCE_SEC &&
+      remainingSec <= SEC_24H + REMINDER_TOLERANCE_SEC
     
     // Find bookings that need 1-hour reminder
     const { data: bookings, error: bookingsError } = await supabase
@@ -126,14 +125,15 @@ Deno.serve(async (req) => {
         console.log(`Skipping booking ${booking.id}: missing slot or client data`)
         continue
       }
-      
-      // Check for 24h reminder
-      if (!booking.reminder_24h_sent && slot.date === targetDate24h) {
-        if (slot.time >= timeFrom24h && slot.time <= timeTo24h) {
-          console.log(`Sending 24h reminder for booking ${booking.id} to client ${client.telegram_id}`)
-          
-          const name = client.first_name || 'Уважаемый клиент'
-          const message24h = `⏰ <b>Напоминание</b>
+
+      const remainingSec = (slotStartUtcMs(slot.date, slot.time) - nowMs) / 1000
+
+      // Check for 24h reminder (по остатку времени до слота, не по строкам даты/времени)
+      if (!booking.reminder_24h_sent && in24hBand(remainingSec)) {
+        console.log(`Sending 24h reminder for booking ${booking.id} to client ${client.telegram_id} (remaining ~${Math.round(remainingSec / 60)} min)`)
+
+        const name = client.first_name || 'Уважаемый клиент'
+        const message24h = `⏰ <b>Напоминание</b>
 
 ${name}, завтра у вас консультация!
 
@@ -141,34 +141,31 @@ ${name}, завтра у вас консультация!
 
 До встречи! 🙌`
 
-          const result = await sendMessage(client.telegram_id, message24h)
-          
-          if (result.ok) {
-            const { error: updateError } = await supabase
-              .from('bookings')
-              .update({ reminder_24h_sent: true })
-              .eq('id', booking.id)
-            
-            if (updateError) {
-              console.error(`Error updating 24h reminder for booking ${booking.id}:`, updateError)
-            } else {
-              sentCount24h++
-              console.log(`24h reminder sent and marked for booking ${booking.id}`)
-            }
+        const result = await sendMessage(client.telegram_id, message24h)
+
+        if (result.ok) {
+          const { error: updateError } = await supabase
+            .from('bookings')
+            .update({ reminder_24h_sent: true })
+            .eq('id', booking.id)
+
+          if (updateError) {
+            console.error(`Error updating 24h reminder for booking ${booking.id}:`, updateError)
           } else {
-            console.error(`Failed to send 24h message for booking ${booking.id}:`, result)
+            sentCount24h++
+            console.log(`24h reminder sent and marked for booking ${booking.id}`)
           }
+        } else {
+          console.error(`Failed to send 24h message for booking ${booking.id}:`, result)
         }
       }
       
       // Check for 1h reminder
-      if (!booking.reminder_1h_sent && slot.date === currentDate) {
-        if (slot.time >= timeFrom1h && slot.time <= timeTo1h) {
-          console.log(`Sending 1h reminder for booking ${booking.id} to client ${client.telegram_id}`)
-          
-          // Send reminder
-          const name = client.first_name || 'Уважаемый клиент'
-          const message1h = `⏰ <b>Напоминание</b>
+      if (!booking.reminder_1h_sent && in1hBand(remainingSec)) {
+        console.log(`Sending 1h reminder for booking ${booking.id} to client ${client.telegram_id} (remaining ~${Math.round(remainingSec / 60)} min)`)
+
+        const name = client.first_name || 'Уважаемый клиент'
+        const message1h = `⏰ <b>Напоминание</b>
 
 ${name}, через 1 час у вас консультация!
 
@@ -176,24 +173,22 @@ ${name}, через 1 час у вас консультация!
 
 До встречи! 🙌`
 
-          const result = await sendMessage(client.telegram_id, message1h)
-          
-          if (result.ok) {
-            // Mark reminder as sent
-            const { error: updateError } = await supabase
-              .from('bookings')
-              .update({ reminder_1h_sent: true })
-              .eq('id', booking.id)
-            
-            if (updateError) {
-              console.error(`Error updating booking ${booking.id}:`, updateError)
-            } else {
-              sentCount1h++
-              console.log(`1h reminder sent and marked for booking ${booking.id}`)
-            }
+        const result = await sendMessage(client.telegram_id, message1h)
+
+        if (result.ok) {
+          const { error: updateError } = await supabase
+            .from('bookings')
+            .update({ reminder_1h_sent: true })
+            .eq('id', booking.id)
+
+          if (updateError) {
+            console.error(`Error updating booking ${booking.id}:`, updateError)
           } else {
-            console.error(`Failed to send 1h message for booking ${booking.id}:`, result)
+            sentCount1h++
+            console.log(`1h reminder sent and marked for booking ${booking.id}`)
           }
+        } else {
+          console.error(`Failed to send 1h message for booking ${booking.id}:`, result)
         }
       }
     }
