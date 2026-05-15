@@ -3,6 +3,7 @@ const path = require('path');
 const multer = require('multer');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const db = require('./db');
+const reminderLogic = require('./reminder-logic');
 const { initStorage, savePaymentScreenshot, saveAboutMePhoto, deleteAboutMePhoto } = require('./storage');
 
 const app = express();
@@ -2367,6 +2368,67 @@ app.get('/api/diary', async (req, res) => {
 
 // Initialize storage on startup
 const PORT = process.env.PORT || 3000;
+
+const REMINDER_TICK_MS = parseInt(process.env.REMINDER_TICK_MS ?? '60000', 10);
+
+let reminderTickBusy = false;
+
+async function runBookingReminderTick() {
+  if (reminderTickBusy) return;
+  reminderTickBusy = true;
+  try {
+    const rows = await db.getActiveBookingsForReminders();
+    const nowMs = Date.now();
+    let sent24 = 0;
+    let sent1 = 0;
+    for (const row of rows) {
+      const dateStr = row.slot_date ? String(row.slot_date).slice(0, 10) : '';
+      const timeStr = row.slot_time ? String(row.slot_time).trim() : '';
+      if (!dateStr || !timeStr || row.telegram_id == null) continue;
+
+      const remainingSec = reminderLogic.remainingUntilSlotSec(dateStr, timeStr, nowMs);
+      if (!Number.isFinite(remainingSec)) continue;
+
+      const name = row.first_name || 'Уважаемый клиент';
+      const dateRu = reminderLogic.formatSlotCalendarDateRu(dateStr);
+      const timeShort = reminderLogic.normalizeSlotTimeString(timeStr).slice(0, 5);
+
+      if (!row.reminder_24h_sent && reminderLogic.in24hReminderBand(remainingSec)) {
+        const msg =
+          `⏰ <b>Напоминание</b>\n\n${name}, завтра у вас консультация!\n\n📅 ${dateRu} в ${timeShort}\n\nДо встречи! 🙌`;
+        console.log(
+          `📬 24h reminder booking=${row.id} tg=${row.telegram_id} remainingMin≈${Math.round(remainingSec / 60)}`,
+        );
+        const result = await sendMessage(row.telegram_id, msg, null, false);
+        if (result.ok) {
+          await db.query('UPDATE bookings SET reminder_24h_sent = true WHERE id = $1', [row.id]);
+          sent24++;
+        }
+      }
+
+      if (!row.reminder_1h_sent && reminderLogic.in1hReminderBand(remainingSec)) {
+        const msg =
+          `⏰ <b>Напоминание</b>\n\n${name}, через 1 час у вас консультация!\n\n📅 ${dateRu} в ${timeShort}\n\nДо встречи! 🙌`;
+        console.log(
+          `📬 1h reminder booking=${row.id} tg=${row.telegram_id} remainingMin≈${Math.round(remainingSec / 60)}`,
+        );
+        const result = await sendMessage(row.telegram_id, msg, null, false);
+        if (result.ok) {
+          await db.query('UPDATE bookings SET reminder_1h_sent = true WHERE id = $1', [row.id]);
+          sent1++;
+        }
+      }
+    }
+    if (sent24 > 0 || sent1 > 0) {
+      console.log(`📬 Reminders sent: ${sent24}×24h, ${sent1}×1h (checked ${rows.length} active bookings)`);
+    }
+  } catch (err) {
+    console.error('❌ runBookingReminderTick:', err);
+  } finally {
+    reminderTickBusy = false;
+  }
+}
+
 app.listen(PORT, async () => {
   console.log(`Bot server running on port ${PORT}`);
   
@@ -2381,4 +2443,12 @@ app.listen(PORT, async () => {
 
   await initStorage();
   console.log('✓ Storage initialized');
+
+  if (REMINDER_TICK_MS > 0) {
+    setInterval(runBookingReminderTick, REMINDER_TICK_MS);
+    runBookingReminderTick().catch((e) => console.error('❌ Initial reminder tick:', e));
+    console.log(`✓ Booking reminders: tick every ${REMINDER_TICK_MS / 1000}s (PostgreSQL на этом сервере)`);
+  } else {
+    console.log('ℹ️ Booking reminders disabled (REMINDER_TICK_MS=0)');
+  }
 });

@@ -316,6 +316,25 @@ async function cancelBooking(bookingId) {
   return result.rows[0] || null;
 }
 
+/** Активные записи для напоминаний (локальная PG, та же что и бот). */
+async function getActiveBookingsForReminders() {
+  const result = await query(`
+    SELECT
+      b.id,
+      b.reminder_1h_sent,
+      b.reminder_24h_sent,
+      c.telegram_id,
+      c.first_name,
+      s.date::text AS slot_date,
+      s.time::text AS slot_time
+    FROM bookings b
+    JOIN clients c ON c.id = b.client_id
+    JOIN slots s ON s.id = b.slot_id
+    WHERE b.status = 'active'
+  `);
+  return result.rows;
+}
+
 // Diary operations
 async function getDiaryEntries(clientId, limit = 5) {
   const result = await query(
@@ -463,6 +482,7 @@ module.exports = {
   createBooking,
   cancelBookingBySlotId,
   cancelBooking,
+  getActiveBookingsForReminders,
   // Diary
   getDiaryEntries,
   createDiaryEntry,
