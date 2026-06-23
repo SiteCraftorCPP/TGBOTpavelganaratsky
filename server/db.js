@@ -74,13 +74,16 @@ async function countClientBookings(clientId) {
   return result.rows[0].c;
 }
 
-/** Есть ли в истории хотя бы одна запись — тогда самозапись без модерации. */
+/** Самозапись: одобрение админа или история записей до модерации (без активной заявки). */
 async function clientCanSelfServiceBook(clientId) {
-  const n = await countClientBookings(clientId);
-  if (n > 0) return true;
   const client = await getClientById(clientId);
   if (!client) return false;
-  return client.first_booking_access_approved === true;
+  if (client.first_booking_access_approved === true) return true;
+  // Заявка на рассмотрении — запись запрещена, даже если успели создать booking в обход UI
+  if (client.first_booking_access_requested_at != null) return false;
+  const n = await countClientBookings(clientId);
+  if (n > 0) return true;
+  return false;
 }
 
 async function markClientFirstBookingAccessRequested(clientId) {

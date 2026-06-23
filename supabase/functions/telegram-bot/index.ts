@@ -236,18 +236,21 @@ async function countClientBookings(clientId: string): Promise<number> {
 }
 
 async function clientCanSelfServiceBook(clientId: string): Promise<boolean> {
-  const n = await countClientBookings(clientId)
-  if (n > 0) return true
   const { data, error } = await supabase
     .from('clients')
-    .select('first_booking_access_approved')
+    .select('first_booking_access_approved, first_booking_access_requested_at')
     .eq('id', clientId)
     .maybeSingle()
   if (error) {
     console.error('clientCanSelfServiceBook', error)
     return false
   }
-  return data?.first_booking_access_approved === true
+  if (!data) return false
+  if (data.first_booking_access_approved === true) return true
+  if (data.first_booking_access_requested_at != null) return false
+  const n = await countClientBookings(clientId)
+  if (n > 0) return true
+  return false
 }
 
 async function markClientFirstBookingAccessRequested(clientId: string) {
@@ -322,7 +325,21 @@ async function ensureClientSelfServiceBooking(
   telegramId: number,
   client: { id: string },
 ) {
-  if (await clientCanSelfServiceBook(client.id)) return true
+  const { data: fresh } = await supabase
+    .from('clients')
+    .select('id, first_booking_access_requested_at')
+    .eq('telegram_id', telegramId)
+    .maybeSingle()
+  const clientId = fresh?.id || client.id
+  if (await clientCanSelfServiceBook(clientId)) return true
+  if (fresh?.first_booking_access_requested_at) {
+    await sendMessage(
+      chatId,
+      '⏳ Ваша заявка на возможность записи уже отправлена и ожидает решения администратора.\n\nКогда заявку рассмотрят, вы получите сообщение здесь.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] },
+    )
+    return false
+  }
   await sendMessage(
     chatId,
     '⏳ Самостоятельная запись пока недоступна: дождитесь одобрения заявки администратором или откройте «Записаться на консультацию», чтобы отправить заявку.',
@@ -447,6 +464,11 @@ async function getClientBookings(clientId: string) {
 
 // Book a slot with format
 async function bookSlot(clientId: string, slotId: string, format: string = 'offline') {
+  if (!(await clientCanSelfServiceBook(clientId))) {
+    console.log('❌ Booking blocked: first booking access not approved')
+    return false
+  }
+
   // Get slot info for notification
   const { data: slot } = await supabase
     .from('slots')

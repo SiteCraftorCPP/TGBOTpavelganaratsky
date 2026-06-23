@@ -353,6 +353,10 @@ async function getClientBookings(clientId) {
 async function bookSlot(clientId, slotId, format = 'offline') {
   try {
     console.log('📅 bookSlot called:', { clientId, slotId, format });
+    if (!(await db.clientCanSelfServiceBook(clientId))) {
+      console.log('❌ Booking blocked: first booking access not approved');
+      return false;
+    }
     const slot = await db.getSlotById(slotId);
     if (!slot) {
       console.log('❌ Slot not found:', slotId);
@@ -516,7 +520,17 @@ async function getFileUrl(fileId) {
 // Save payment screenshot (using local storage) - function name conflicts, using storage module directly
 
 async function ensureClientSelfServiceBooking(chatId, telegramId, client) {
-  if (await db.clientCanSelfServiceBook(client.id)) return true;
+  const fresh = await db.getClientByTelegramId(telegramId);
+  const clientId = fresh?.id || client.id;
+  if (await db.clientCanSelfServiceBook(clientId)) return true;
+  if (fresh?.first_booking_access_requested_at) {
+    await sendMessage(
+      chatId,
+      '⏳ Ваша заявка на возможность записи уже отправлена и ожидает решения администратора.\n\nКогда заявку рассмотрят, вы получите сообщение здесь.',
+      { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'main_menu' }]] }
+    );
+    return false;
+  }
   await sendMessage(
     chatId,
     '⏳ Самостоятельная запись пока недоступна: дождитесь одобрения заявки администратором или откройте «Записаться на консультацию», чтобы отправить заявку.',
